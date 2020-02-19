@@ -1,86 +1,112 @@
-﻿exports.newStatusDependencies = function newStatusDependencies(BOT, logger, STATUS_REPORT, BLOB_STORAGE, UTILITIES) {
+﻿exports.newStatusDependencies = function newStatusDependencies(BOT, logger, STATUS_REPORT, UTILITIES) {
 
     const FULL_LOG = true;
     const LOG_FILE_CONTENT = false;
-
     const MODULE_NAME = "Status Dependencies";
 
+    let bot = BOT 
+
     let thisObject = {
-        config: undefined,
-        statusReports: new Map(),              
+        nodeArray: undefined,
+        statusReports: new Map(),
+        reportsByMainUtility: new Map(),
         initialize: initialize,
         keys: []
     };
 
-    let bot = BOT;
-    let ownerBot;                       // This is the bot owner of the Status Report. Only owners can save the report and override the existing content.
-
     return thisObject;
 
-    function initialize(pStatusDependenciesConfig, pMonth, pYear, callBackFunction) {
+    function initialize(callBackFunction) {
 
         try {
 
             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> Entering function."); }
 
-            thisObject.config = pStatusDependenciesConfig;
+            /* Basic Valdidations */
+            if (bot.processNode.referenceParent.processDependencies !== undefined) {
+                if (bot.processNode.referenceParent.processDependencies.statusDependencies !== undefined) {
+                    thisObject.nodeArray = bot.processNode.referenceParent.processDependencies.statusDependencies
+                } else {
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> onInitilized -> It is not possible to not have status dependencies at all.");
+                    callBackFunction(global.DEFAULT_OK_RESPONSE)
+                    return
+                }
+            } else {
+                logger.write(MODULE_NAME, "[ERROR] initialize -> onInitilized -> It is not possible to not have process dependencies, which means not status dependencies.");
+                callBackFunction(global.DEFAULT_FAIL_RESPONSE)
+                return
+            }
 
-            /*
+            /*For each dependency we will initialize the status report, and load it as part of this initialization process.*/
 
-            For each dependency declared at the bot config, we will initialize the status report, and load it as part of this initialization process.
-
-            */
             let alreadyCalledBack = false;
             let loadCount = 0;
+            let dependenciesToProcess = []
+            for (let i = 0; i < thisObject.nodeArray.length; i++) {
+                let statusDependency = {
+                    dependency: thisObject.nodeArray[i]
+                }
+                    
+                dependenciesToProcess.push(statusDependency)
 
-            for (let i = 0; i < pStatusDependenciesConfig.length; i++) {
+            }
 
-                let statusReportModule = STATUS_REPORT.newStatusReport(BOT, logger, BLOB_STORAGE, UTILITIES);
+            for (let i = 0; i < dependenciesToProcess.length; i++) {
 
-                statusReportModule.initialize(pStatusDependenciesConfig[i], pMonth, pYear, onInitilized);
+                let statusReportModule = STATUS_REPORT.newStatusReport(BOT, logger, UTILITIES);
+
+                logger.write(MODULE_NAME, "[INFO] initialize -> onInitilized -> Initializing Status Report # " + (i + 1));
+                let statusDependency = dependenciesToProcess[i]
+                statusReportModule.initialize(statusDependency.dependency, onInitilized);
 
                 function onInitilized(err) {
 
-                    if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                        logger.write(MODULE_NAME, "[ERROR] initialize -> onInitilized -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[INFO] initialize -> onInitilized -> Initialized Status Report # " + (i + 1));
 
-                        alreadyCalledBack = true;
-                        callBackFunction(err);
+                    if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
+                        if (alreadyCalledBack === false) {
+                            logger.write(MODULE_NAME, "[ERROR] initialize -> onInitilized -> err = " + err.stack);
+                            logger.write(MODULE_NAME, "[ERROR] initialize -> onInitilized -> err.message = " + err.message);
+                            alreadyCalledBack = true;
+                            callBackFunction(err);
+                        } else {
+                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[WARN] initialize -> Can not call back because I already did."); }
+                        }
                         return;
                     }
 
+                    logger.write(MODULE_NAME, "[INFO] initialize -> onInitilized -> Loading Status Report # " + (i + 1));
                     statusReportModule.load(onLoad);
                 }
 
                 function onLoad(err) {
 
                     try {
-
+                        logger.write(MODULE_NAME, "[INFO] initialize -> onLoad -> Loaded Status Report # " + (i + 1));
                         statusReportModule.status = err.message;
 
                         switch (err.message) {
                             case global.DEFAULT_OK_RESPONSE.message: {
 
-                                if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> onLoad -> Execution finished well. -> bot = " + pStatusDependenciesConfig[i].bot); }
-                                if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> onLoad -> Execution finished well. -> process = " + pStatusDependenciesConfig[i].process); }
+                                if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> onLoad -> Execution finished well. -> Status Dependency = " + JSON.stringify(statusDependency.dependency)) }
 
                                 addReport();
                                 return;
                             }
                             case "Status Report was never created.": {
 
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> err.message = " + err.message);
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> bot = " + pStatusDependenciesConfig[i].bot);
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> process = " + pStatusDependenciesConfig[i].process);
+                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> err = " + err.stack);
+                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> Status Dependency = " + JSON.stringify(statusDependency.dependency))
+
                                 addReport();
                                 return;
                             }
 
                             case "Status Report is corrupt.": {
 
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> err.message = " + err.message);
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> bot = " + pStatusDependenciesConfig[i].bot);
-                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> process = " + pStatusDependenciesConfig[i].process);
+                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> err = " + err.stack);
+                                logger.write(MODULE_NAME, "[WARN] initialize -> onLoad -> Report Not Found. -> Status Dependency = " + JSON.stringify(statusDependency.dependency))
+
                                 addReport();
                                 return;
                             }
@@ -97,7 +123,7 @@
                         }
                     }
                     catch (err) {
-                        logger.write(MODULE_NAME, "[ERROR] initialize -> onLoad -> err = " + err.message);
+                        logger.write(MODULE_NAME, "[ERROR] initialize -> onLoad -> err = "+ err.stack);
                         callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                     }
                 }
@@ -105,33 +131,36 @@
                 function addReport() {
 
                     if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> addReport -> Entering function."); }
+                    logger.write(MODULE_NAME, "[INFO] initialize -> addReport -> Adding Status Report # " + (i + 1));
 
                     loadCount++;
+                    logger.write(MODULE_NAME, "[INFO] initialize -> addReport -> Total Added = " + loadCount);
 
-                    let key;
-
-                    if (pStatusDependenciesConfig[i].dataSetSection === "Month") {
-                        key = pStatusDependenciesConfig[i].devTeam + "-" + pStatusDependenciesConfig[i].bot + "-" + pStatusDependenciesConfig[i].process + "-" + pStatusDependenciesConfig[i].dataSetVersion + "-" + pYear + "-" + pMonth;
-                    } else {
-                        key = pStatusDependenciesConfig[i].devTeam + "-" + pStatusDependenciesConfig[i].bot + "-" + pStatusDependenciesConfig[i].process + "-" + pStatusDependenciesConfig[i].dataSetVersion;
-                    }
+                    let key = statusDependency.dependency.dataMine + "-" + statusDependency.dependency.bot + "-" + statusDependency.dependency.process + "-" + statusDependency.dependency.dataSetVersion;
 
                     thisObject.keys.push(key);
                     thisObject.statusReports.set(key, statusReportModule);
 
+                    if (statusReportModule.mainUtility !== undefined) {
+                        thisObject.reportsByMainUtility.set(statusReportModule.mainUtility, statusReportModule)
+                    } 
+
                     if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] initialize -> addReport -> Report added to Map. -> key = " + key); }
 
-                    if (loadCount === pStatusDependenciesConfig.length) {
+                    if (loadCount === dependenciesToProcess.length) {
                         if (alreadyCalledBack === false) {
+                            alreadyCalledBack = true
                             callBackFunction(global.DEFAULT_OK_RESPONSE);
                             return;
+                        } else {
+                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[WARN] initialize -> addReport -> Can not call back because I already did."); }
                         }
                     }
                 }
             }
 
         } catch (err) {
-            logger.write(MODULE_NAME, "[ERROR] initialize -> err = " + err.message);
+            logger.write(MODULE_NAME, "[ERROR] initialize -> err = "+ err.stack);
             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
         }
     }

@@ -1,24 +1,23 @@
-﻿exports.newMultiPeriodMarket = function newMultiPeriodMarket(bot, logger, COMMONS, UTILITIES, BLOB_STORAGE, USER_BOT_MODULE, COMMONS_MODULE) {
+﻿exports.newMultiPeriodMarket = function newMultiPeriodMarket(bot, logger, UTILITIES, FILE_STORAGE) {
 
     const FULL_LOG = true;
     const LOG_FILE_CONTENT = false;
     const MODULE_NAME = "Multi Period Market";
 
-    const commons = COMMONS.newCommons(bot, logger, UTILITIES);
-
     thisObject = {
         initialize: initialize,
+        finalize: finalize,
         start: start
     };
 
-    let utilities = UTILITIES.newCloudUtilities(bot, logger);
+    let utilities = UTILITIES.newCloudUtilities(logger);
 
     let statusDependencies;
     let dataDependencies;
-    let storages = [];
-    let dataFiles = [];
+    let datasets = [];
+    let dataFiles = new Map();
 
-    let usertBot;
+    let botInstance;
 
     let processConfig;
 
@@ -37,31 +36,43 @@
             dataDependencies = pDataDependencies;
             processConfig = pProcessConfig;
 
-            for (let i = 0; i < dataDependencies.config.length; i++) {
+            for (let i = 0; i < dataDependencies.nodeArray.length; i++) {
 
                 let key;
-                let storage;
-                let dependency = dataDependencies.config[i];
+                let dataset;
+                let dependency = dataDependencies.nodeArray[i];
 
-                key = dependency.devTeam + "-" +
+                key = dependency.dataMine + "-" +
                     dependency.bot + "-" +
                     dependency.product + "-" +
                     dependency.dataSet + "-" +
-                    dependency.dataSetVersion 
+                    dependency.dataSetVersion
 
-                storage = dataDependencies.dataSets.get(key);
+                dataset = dataDependencies.dataSets.get(key);
 
-                storages.push(storage);
+                datasets.push(dataset);
 
             }
 
-            usertBot = USER_BOT_MODULE.newUserBot(bot, logger, COMMONS_MODULE, UTILITIES, BLOB_STORAGE);
-            usertBot.initialize(dataDependencies, callBackFunction);
+            let USER_BOT_MODULE = require("./IndicatorBot")
+
+            botInstance = USER_BOT_MODULE.newIndicatorBot(bot, logger, UTILITIES, FILE_STORAGE);
+            botInstance.initialize(callBackFunction);
 
         } catch (err) {
-            logger.write(MODULE_NAME, "[ERROR] initialize -> err = " + err.message);
+            logger.write(MODULE_NAME, "[ERROR] initialize -> err = "+ err.stack);
             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
         }
+    }
+
+    function finalize() {
+        datasets = undefined
+        dataFiles = undefined
+        statusDependencies = undefined
+        dataDependencies = undefined
+        botInstance = undefined
+        processConfig = undefined
+        thisObject = undefined
     }
 
     function start(callBackFunction) {
@@ -70,7 +81,7 @@
 
             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> Entering function."); }
 
-            let market = global.MARKET;
+            let market = bot.market;
 
             /* Context Variables */
 
@@ -95,11 +106,11 @@
 
             }
 
-            processTimePeriods();
+            processTimeFrames();
 
-            function processTimePeriods() {
+            function processTimeFrames() {
 
-                if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> Entering function."); }
+                if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> Entering function."); }
 
                 try {
 
@@ -111,12 +122,12 @@
 
                         try {
 
-                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoop -> Entering function."); }
+                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoop -> Entering function."); }
 
                             /*
-            
+
                             We will iterate through all posible periods.
-            
+
                             */
 
                             n = 0   // loop Variable representing each possible period as defined at the periods array.
@@ -125,7 +136,7 @@
 
                         }
                         catch (err) {
-                            logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoop -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoop -> err = "+ err.stack);
                             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                         }
                     }
@@ -134,13 +145,13 @@
 
                         try {
 
-                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> Entering function."); }
+                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> Entering function."); }
 
-                            const timePeriod = global.marketFilesPeriods[n][0];
-                            const outputPeriodLabel = global.marketFilesPeriods[n][1];
+                            const timeFrame = global.marketFilesPeriods[n][0];
+                            const timeFrameLabel = global.marketFilesPeriods[n][1];
 
                             let dependencyIndex = 0;
-                            dataFiles = [];
+                            dataFiles = new Map;
 
                             dependencyLoopBody();
 
@@ -148,10 +159,10 @@
 
                                 try {
 
-                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> Entering function."); }
+                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> Entering function."); }
 
-                                    let dependency = dataDependencies.config[dependencyIndex];
-                                    let storage = storages[dependencyIndex];
+                                    let dependency = dataDependencies.nodeArray[dependencyIndex];
+                                    let dataset = datasets[dependencyIndex];
 
                                     getFile();
 
@@ -159,51 +170,54 @@
 
                                         try {
 
-                                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> Entering function."); }
+                                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> Entering function."); }
 
-                                            let fileName = market.assetA + '_' + market.assetB + ".json";
+                                            let dateForPath = bot.processDatetime.getUTCFullYear() + '/' + utilities.pad(bot.processDatetime.getUTCMonth() + 1, 2) + '/' + utilities.pad(bot.processDatetime.getUTCDate(), 2);
+                                            let fileName = market.baseAsset + '_' + market.quotedAsset + ".json";
 
-                                            let filePath = dependency.product + "/" + "Multi-Period-Market" + "/" + outputPeriodLabel;
-
-                                            storage.getTextFile(filePath, fileName, onFileReceived, true);
+                                            let filePath
+                                            if (dependency.dataSet === "Multi-Period-Market") {
+                                                filePath = dependency.product + '/' + dependency.dataSet + "/" + timeFrameLabel;
+                                            } else {
+                                                filePath = dependency.product + '/' + dependency.dataSet + "/" + dateForPath;
+                                            }
+                                            dataset.getTextFile(filePath, fileName, onFileReceived);
 
                                             function onFileReceived(err, text) {
 
                                                 try {
 
-                                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> Entering function."); }
-                                                    if (LOG_FILE_CONTENT === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> text = " + text); }
+                                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> Entering function."); }
+                                                    if (LOG_FILE_CONTENT === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> text = " + text); }
 
                                                     if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
 
-                                                        logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> err = " + err.message);
-                                                        logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> filePath = " + filePath);
-                                                        logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> fileName = " + fileName);
+                                                        logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> err = "+ err.stack);
                                                         callBackFunction(err);
                                                         return;
                                                     }
 
                                                     let dataFile = JSON.parse(text);
-                                                    dataFiles.push(dataFile);
+                                                    dataFiles.set(dependency.id, dataFile);
 
                                                     dependencyControlLoop();
 
                                                 }
                                                 catch (err) {
-                                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> err = " + err.message);
+                                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> onFileReceived -> err = "+ err.stack);
                                                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                                 }
                                             }
                                         }
                                         catch (err) {
-                                            logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> dependencyLoopBody -> getFile -> err = " + err.message);
+                                            logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> dependencyLoopBody -> getFile -> err = "+ err.stack);
                                             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                         }
                                     }
 
                                 }
                                 catch (err) {
-                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoop -> dependencyLoopBody -> err = " + err.message);
+                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoop -> dependencyLoopBody -> err = "+ err.stack);
                                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                 }
                             }
@@ -212,11 +226,11 @@
 
                                 try {
 
-                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> dependencyControlLoop -> Entering function."); }
+                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> dependencyControlLoop -> Entering function."); }
 
                                     dependencyIndex++;
 
-                                    if (dependencyIndex < dataDependencies.config.length) {
+                                    if (dependencyIndex < dataDependencies.nodeArray.length) {
 
                                         dependencyLoopBody();
 
@@ -227,33 +241,33 @@
                                     }
                                 }
                                 catch (err) {
-                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> dependencyControlLoop -> err = " + err.message);
+                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> dependencyControlLoop -> err = "+ err.stack);
                                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                 }
                             }
-                           
+
                             function callTheBot() {
 
                                 try {
 
-                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> callTheBot -> Entering function."); }
+                                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> callTheBot -> Entering function."); }
 
-                                    const timePeriod = global.marketFilesPeriods[n][0];
-                                    const outputPeriodLabel = global.marketFilesPeriods[n][1];
+                                    const timeFrame = global.marketFilesPeriods[n][0];
+                                    const timeFrameLabel = global.marketFilesPeriods[n][1];
 
-                                    usertBot.start(
+                                    botInstance.start(
                                         dataFiles,
-                                        timePeriod,
-                                        outputPeriodLabel,
-                                        contextVariables.dateBeginOfMarket,
-                                        contextVariables.dateEndOfMarket,
+                                        timeFrame,
+                                        timeFrameLabel,
+                                        undefined,
+                                        undefined,
                                         onBotFinished);
 
                                     function onBotFinished(err) {
 
                                         try {
 
-                                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsLoopBody -> callTheBot -> onBotFinished -> Entering function."); }
+                                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsLoopBody -> callTheBot -> onBotFinished -> Entering function."); }
 
                                             if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
 
@@ -264,19 +278,19 @@
                                             periodsControlLoop();
                                         }
                                         catch (err) {
-                                            logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> callTheBot -> onBotFinished -> err = " + err.message);
+                                            logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> callTheBot -> onBotFinished -> err = "+ err.stack);
                                             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                         }
                                     }
                                 }
                                 catch(err){
-                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> callTheBot -> err = " + err.message);
+                                    logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> callTheBot -> err = "+ err.stack);
                                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                                 }
                             }
                         }
                         catch (err) {
-                            logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsLoopBody -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsLoopBody -> err = "+ err.stack);
                             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                         }
                     }
@@ -285,7 +299,7 @@
 
                         try {
 
-                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimePeriods -> periodsControlLoop -> Entering function."); }
+                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> processTimeFrames -> periodsControlLoop -> Entering function."); }
 
                             n++;
 
@@ -300,14 +314,14 @@
                             }
                         }
                         catch (err) {
-                            logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> periodsControlLoop -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> periodsControlLoop -> err = "+ err.stack);
                             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                         }
                     }
 
                 }
                 catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] start -> processTimePeriods -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] start -> processTimeFrames -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -318,7 +332,7 @@
 
                 try {
 
-                    let reportKey = bot.devTeam + "-" + bot.codeName + "-" + "Multi-Period-Market" + "-" + "dataSet.V1";
+                    let reportKey = bot.dataMine + "-" + bot.codeName + "-" + "Multi-Period-Market" + "-" + "dataSet.V1";
                     let thisReport = statusDependencies.statusReports.get(reportKey);
 
                     thisReport.file.lastExecution = bot.processDatetime;
@@ -326,14 +340,14 @@
 
                 }
                 catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] start -> writeStatusReport -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] start -> writeStatusReport -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
         }
 
         catch (err) {
-            logger.write(MODULE_NAME, "[ERROR] start -> err = " + err.message);
+            logger.write(MODULE_NAME, "[ERROR] start -> err = "+ err.stack);
             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
         }
     }

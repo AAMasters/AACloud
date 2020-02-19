@@ -1,10 +1,7 @@
 ﻿
-exports.newCloudUtilities = function newCloudUtilities(BOT, logger) {
+exports.newCloudUtilities = function newCloudUtilities(logger) {
 
     const FULL_LOG = true;
-
-    let bot = BOT;
-    const ROOT_DIR = '../';
 
     const MODULE_NAME = "Cloud Utilities";
 
@@ -49,7 +46,7 @@ exports.newCloudUtilities = function newCloudUtilities(BOT, logger) {
                     if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] createFolderIfNeeded -> loop -> checkLoop -> Entering function."); }
 
                     if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                        logger.write(MODULE_NAME, "[ERROR] createFolderIfNeeded -> loop -> checkLoop -> err = " + err.message);
+                        logger.write(MODULE_NAME, "[ERROR] createFolderIfNeeded -> loop -> checkLoop -> err = "+ err.stack);
                         callBackFunction(err);
                         return;
                     }

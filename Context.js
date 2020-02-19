@@ -1,4 +1,4 @@
-﻿exports.newContext = function newContext(BOT, logger, BLOB_STORAGE, UTILITIES, STATUS_REPORT) {
+﻿exports.newContext = function newContext(BOT, logger, UTILITIES) {
 
     let bot = BOT;
 
@@ -36,8 +36,8 @@
             newPositions: 0,
             newTrades: 0,
             movedPositions: 0,
-            profitsAssetA: 0,
-            profitsAssetB: 0,
+            profitsBaseAsset: 0,
+            profitsQuotedAsset: 0,
             combinedProfitsA: 0,
             combinedProfitsB: 0,
             messageRelevance: 0,
@@ -61,55 +61,39 @@
 
     /* Utilities needed. */
 
-    let utilities = UTILITIES.newCloudUtilities(bot, logger);
+    let utilities = UTILITIES.newCloudUtilities(logger);
 
     /* Storage account to be used here. */
 
-    let cloudStorage = BLOB_STORAGE.newBlobStorage(bot, logger);
+    const FILE_STORAGE = require('./FileStorage.js');
+	let fileStorage = FILE_STORAGE.newFileStorage(logger);
 
     let statusDependencies;
 
     let runIndex;  // This is the index for this run and depends on the startMode.
-
-    let totalAlgobots;
+    let sessionPath = ''
 
     return thisObject;
 
-    function initialize(pStatusDependencies, pTotalAlgobots, callBackFunction) {
+    function initialize(pStatusDependencies, callBackFunction) {
 
         try {
 
             if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> Entering function."); }
 
             statusDependencies = pStatusDependencies;
-            totalAlgobots = pTotalAlgobots;
+
+            if (bot.SESSION !== undefined) {
+                sessionPath = bot.SESSION.folderName + "/"
+            } 
 
             /*
-
             Here we get the positions the bot did and that are recorded at the bot storage account. We will use them through out the rest
             of the process.
-
             */
-            initializeStorage();
+            thisObject.newHistoryRecord.date = bot.processDatetime;
 
-            function initializeStorage() {
-
-                cloudStorage.initialize(bot.devTeam, onInizialized);
-
-                function onInizialized(err) {
-
-                    if (err.result === global.DEFAULT_OK_RESPONSE.result) {
-
-                        thisObject.newHistoryRecord.date = bot.processDatetime;
-
-                        getStatusReport(onDone);
-
-                    } else {
-                        logger.write(MODULE_NAME, "[ERROR] initialize -> initializeStorage -> onInizialized -> err = " + err.message);
-                        callBackFunction(err);
-                    }
-                }
-            }
+            getStatusReport(onDone);
 
             function onDone(err) {
                 try {
@@ -133,12 +117,13 @@
                         }
                         default: {
                             logger.write(MODULE_NAME, "[ERROR] initialize -> onDone -> Operation Failed with custom response.");
+                            logger.write(MODULE_NAME, "[ERROR] initialize -> onDone -> err = " + JSON.stringify(err));
                             callBackFunction(err);
                         }
                     }
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] initialize -> onDone -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> onDone -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -149,7 +134,7 @@
 
                     if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getStatusReport -> Entering function."); }
 
-                    let key = bot.devTeam + "-" + bot.codeName + "-" + bot.process + "-" + bot.dataSetVersion;
+                    let key = bot.dataMine + "-" + bot.codeName + "-" + "Context" + "-" + bot.dataSetVersion;
 
                     statusReportModule = statusDependencies.statusReports.get(key);
                     thisObject.statusReport = statusReportModule.file;
@@ -169,7 +154,7 @@
                     }
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] initialize -> getStatusReport -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> getStatusReport -> err = "+ err.stack);
                     callBack(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -181,17 +166,14 @@
                     if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getExecutionHistory -> Entering function."); }
 
                     let fileName = "Execution.History." + bot.startMode + "." + runIndex + ".json";
-                    let filePath = bot.filePathRoot + "/Output/" + bot.process;
+                    let filePath = bot.filePathRoot + "/Output/" + sessionPath + "Trading-Process/"  + fileName;
 
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getExecutionHistory -> fileName = " + fileName); }
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getExecutionHistory -> filePath = " + filePath); }
-
-                    cloudStorage.getTextFile(filePath, fileName, onFileReceived);
+                    fileStorage.getTextFile(filePath, onFileReceived);
 
                     function onFileReceived(err, text) {
 
                         if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                            logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionHistory -> onFileReceived -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionHistory -> onFileReceived -> err = "+ JSON.stringify(err));
                             callBack(err);
                             return;
                         }
@@ -226,7 +208,7 @@
                     }
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionHistory -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionHistory -> err = "+ err.stack);
                     callBack(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -243,19 +225,16 @@
                     thisObject.statusReport.runs[runIndex].lastExecution = bot.processDatetime;
                     thisObject.statusReport.runs[runIndex].endDatetime = bot.processDatetime;
 
-                    let fileName = "Execution.Context." + bot.startMode + "." + runIndex + ".json";
+                    let fileName = "/Execution.Context." + bot.startMode + "." + runIndex + ".json";
                     let dateForPath = date.getUTCFullYear() + '/' + utilities.pad(date.getUTCMonth() + 1, 2) + '/' + utilities.pad(date.getUTCDate(), 2) + '/' + utilities.pad(date.getUTCHours(), 2) + '/' + utilities.pad(date.getUTCMinutes(), 2);
-                    let filePath = bot.filePathRoot + "/Output/" + bot.process + '/' + dateForPath;
+                    let filePath = bot.filePathRoot + "/Output/" + sessionPath + "Trading-Process/" +  dateForPath + fileName;
 
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getExecutionContext -> fileName = " + fileName); }
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] initialize -> getExecutionContext -> filePath = " + filePath); }
-
-                    cloudStorage.getTextFile(filePath, fileName, onFileReceived);
+                    fileStorage.getTextFile(filePath, onFileReceived);
 
                     function onFileReceived(err, text) {
 
                         if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                            logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionContext -> onFileReceived -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionContext -> onFileReceived -> err = "+ err.stack);
                             callBack(err);
                             return;
                         }
@@ -271,11 +250,11 @@
 
                             /* Update the new History Record, in case there are no trades during this execution that updates it. */
 
-                            thisObject.newHistoryRecord.profitsAssetA = thisObject.executionContext.profits.assetA;
-                            thisObject.newHistoryRecord.profitsAssetB = thisObject.executionContext.profits.assetB;
+                            thisObject.newHistoryRecord.profitsBaseAsset = thisObject.executionContext.profits.baseAsset;
+                            thisObject.newHistoryRecord.profitsQuotedAsset = thisObject.executionContext.profits.quotedAsset;
 
-                            thisObject.newHistoryRecord.combinedProfitsA = thisObject.executionContext.combinedProfits.assetA;
-                            thisObject.newHistoryRecord.combinedProfitsB = thisObject.executionContext.combinedProfits.assetB;
+                            thisObject.newHistoryRecord.combinedProfitsA = thisObject.executionContext.combinedProfits.baseAsset;
+                            thisObject.newHistoryRecord.combinedProfitsB = thisObject.executionContext.combinedProfits.quotedAsset;
 
                             callBack(global.DEFAULT_OK_RESPONSE);
 
@@ -284,7 +263,7 @@
                             /*
 
                             It might happen that the file content is corrupt or it does not exist. The bot can not run without a Status Report,
-                            since it is risky to ignore its own execution history. Execpt when the bot is running for the fist time in this mode,
+                            since it is risky to ignore its own execution history. Except when the bot is running for the fist time in this mode,
                             an execution context file with the right format is needed.
 
                             */
@@ -296,7 +275,7 @@
                     }
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionContext -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> getExecutionContext -> err = "+ err.stack);
                     callBack(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -327,29 +306,33 @@
                     runIndex = thisObject.statusReport.runs.length - 1;
 
                     thisObject.executionHistory = [];
-					const INITIAL_INVESTMENT_A = Number(process.env.INITIAL_BALANCE_ASSET_A);
-                    const INITIAL_INVESTMENT_B = Number(process.env.INITIAL_BALANCE_ASSET_B);
+
+                    if (bot.VALUES_TO_USE.initialBalanceA === undefined || bot.VALUES_TO_USE.initialBalanceB === undefined) { throw new Error("Global Variables INITIAL_BALANCE_A and INITIAL_BALANCE_B cannot be undefined.") }
+
+					const INITIAL_BALANCE_A = Number(bot.VALUES_TO_USE.initialBalanceB); // NOTE THAT THIS IS INVERTED BECAUSE OF POLONIEX THAT IS THE ONLY EXCHANGE SUPPORTED RIGHT NOW
+                    const INITIAL_BALANCE_B = Number(bot.VALUES_TO_USE.initialBalanceA);
+
 
                     thisObject.executionContext = {
-                        investment: {                               // This is used to calculate profits.
-                            assetA: INITIAL_INVESTMENT_A,
-                            assetB: INITIAL_INVESTMENT_B
+                        initialBalance: {                               // This is used to calculate profits.
+                            baseAsset: INITIAL_BALANCE_A,
+                            quotedAsset: INITIAL_BALANCE_B
                         },
                         balance: {                                  // This is the total balance that includes positions at the order book + funds available to be traded.
-                            assetA: INITIAL_INVESTMENT_A,
-                            assetB: INITIAL_INVESTMENT_B              // It starts with the initial investment.
+                            baseAsset: INITIAL_BALANCE_A,
+                            quotedAsset: INITIAL_BALANCE_B              // It starts with the initial initialBalance.
                         },
                         availableBalance: {                         // This is the balance the bot has at any moment in time available to be traded (not in positions at the order book).
-                            assetA: INITIAL_INVESTMENT_A,
-                            assetB: INITIAL_INVESTMENT_B              // It starts with the initial investment.
+                            baseAsset: INITIAL_BALANCE_A,
+                            quotedAsset: INITIAL_BALANCE_B              // It starts with the initial initialBalance.
                         },
                         profits: {
-                            assetA: 0,
-                            assetB: 0
+                            baseAsset: 0,
+                            quotedAsset: 0
                         },
                         combinedProfits: {
-                            assetA: 0,
-                            assetB: 0
+                            baseAsset: 0,
+                            quotedAsset: 0
                         },
                         positions: [],
                         transactions: []
@@ -358,13 +341,13 @@
                     callBack(global.DEFAULT_OK_RESPONSE);
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] initialize -> createConext -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] initialize -> createConext -> err = "+ err.stack);
                     callBack(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
 
         } catch (err) {
-            logger.write(MODULE_NAME, "[ERROR] initialize -> err = " + err.message);
+            logger.write(MODULE_NAME, "[ERROR] initialize -> err = "+ err.stack);
             callBackFunction(global.DEFAULT_FAIL_RESPONSE);
         }
     }
@@ -405,7 +388,7 @@
                     }
 
                 } catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> onDone -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> onDone -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -416,29 +399,28 @@
 
                     if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> Entering function."); }
 
-                    let fileName = "Execution.Context." + bot.startMode + "." + runIndex +".json";
+                    let fileName = "/Execution.Context." + bot.startMode + "." + runIndex +".json";
                     let dateForPath = bot.processDatetime.getUTCFullYear() + '/' + utilities.pad(bot.processDatetime.getUTCMonth() + 1, 2) + '/' + utilities.pad(bot.processDatetime.getUTCDate(), 2) + '/' + utilities.pad(bot.processDatetime.getUTCHours(), 2) + '/' + utilities.pad(bot.processDatetime.getUTCMinutes(), 2);
-                    let filePath = bot.filePathRoot + "/Output/" + bot.process + '/' + dateForPath;
-
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> fileName = " + fileName); }
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> filePath = " + filePath); }
-
+                    let filePath = bot.filePathRoot + "/Output/" + sessionPath + "Trading-Process/"  + dateForPath + fileName;
                     let fileContent = JSON.stringify(thisObject.executionContext);
 
-                    cloudStorage.createTextFile(filePath, fileName, fileContent + '\n', onFileCreated);
+                    if(fileContent === undefined){
+                        logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExecutionContext -> executionContext is undefined.");
+                        callBackFunction(global.DEFAULT_ERROR_RESPONSE);
+                    }
+
+                    if (global.LOG_CONTROL[MODULE_NAME].logContent === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> fileContent = " + fileContent); }
+
+                    fileStorage.createTextFile(filePath, fileContent + '\n', onFileCreated);
 
                     function onFileCreated(err) {
 
                         if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> onFileCreated -> Entering function."); }
 
                         if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                            logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExecutionContext -> onFileCreated -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExecutionContext -> onFileCreated -> err = "+ err.stack);
                             callBack(err);
                             return;
-                        }
-
-                        if (global.LOG_CONTROL[MODULE_NAME].logContent === true) {
-                            logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExecutionContext -> onFileCreated ->  Content written = " + fileContent);
                         }
 
                         writeExucutionHistory(callBack);
@@ -447,7 +429,7 @@
 
                 }
                 catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExecutionContext -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExecutionContext -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -459,10 +441,7 @@
                     if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExucutionHistory -> Entering function."); }
 
                     let fileName = "Execution.History." + bot.startMode + "." + runIndex + ".json";
-                    let filePath = bot.filePathRoot + "/Output/" + bot.process;
-
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExucutionHistory -> fileName = " + fileName); }
-                    if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExucutionHistory -> filePath = " + filePath); }
+                    let filePath = bot.filePathRoot + "/Output/" + sessionPath + "Trading-Process/"  + fileName;
 
                     let newRecord = [
                         thisObject.newHistoryRecord.date.valueOf(),
@@ -478,8 +457,8 @@
                         thisObject.newHistoryRecord.newPositions,
                         thisObject.newHistoryRecord.newTrades,
                         thisObject.newHistoryRecord.movedPositions,
-                        thisObject.newHistoryRecord.profitsAssetA,
-                        thisObject.newHistoryRecord.profitsAssetB,
+                        thisObject.newHistoryRecord.profitsBaseAsset,
+                        thisObject.newHistoryRecord.profitsQuotedAsset,
                         thisObject.newHistoryRecord.combinedProfitsA,
                         thisObject.newHistoryRecord.combinedProfitsB,
 
@@ -493,14 +472,14 @@
 
                     let fileContent = JSON.stringify(thisObject.executionHistory);
 
-                    cloudStorage.createTextFile(filePath, fileName, fileContent + '\n', onFileCreated);
+                    fileStorage.createTextFile(filePath, fileContent + '\n', onFileCreated);
 
                     function onFileCreated(err) {
 
                         if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExucutionHistory -> onFileCreated -> Entering function."); }
 
                         if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                            logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> onFileCreated -> err = " + err.message);
+                            logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> onFileCreated -> err = "+ err.stack);
                             callBack(err);
                             return;
                         }
@@ -513,16 +492,16 @@
 
                         fileContent = runIndex;
                         fileName = "Execution.History." + bot.startMode + "." + "Sequence" + ".json";
-                        filePath = bot.filePathRoot + "/Output/" + bot.process;
+                        filePath = bot.filePathRoot + "/Output/" + sessionPath + "Trading-Process/" + fileName;
 
-                        cloudStorage.createTextFile(filePath, fileName, fileContent + '\n', onSequenceFileCreated);
+                        fileStorage.createTextFile(filePath, fileContent + '\n', onSequenceFileCreated);
 
                         function onSequenceFileCreated(err) {
 
                             if (global.LOG_CONTROL[MODULE_NAME].logInfo === true) { logger.write(MODULE_NAME, "[INFO] saveThemAll -> writeExucutionHistory -> onFileCreated -> onSequenceFileCreated -> Entering function."); }
 
                             if (err.result !== global.DEFAULT_OK_RESPONSE.result) {
-                                logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> onFileCreated -> onSequenceFileCreated -> err = " + err.message);
+                                logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> onFileCreated -> onSequenceFileCreated -> err = "+ err.stack);
                                 callBack(err);
                                 return;
                             }
@@ -534,7 +513,7 @@
 
                 }
                 catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeExucutionHistory -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
@@ -550,7 +529,7 @@
 
                 }
                 catch (err) {
-                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeStatusReport -> err = " + err.message);
+                    logger.write(MODULE_NAME, "[ERROR] saveThemAll -> writeStatusReport -> err = "+ err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
