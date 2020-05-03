@@ -205,13 +205,14 @@
 
                     /* Simplifying the access to basic info */
                     botConfig.dataMine = global.TASK_NODE.bot.processes[processIndex].referenceParent.parentNode.parentNode.code.codeName
-                    botConfig.exchange = global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.parentNode.parentNode.code.codeName
+                    botConfig.exchange = global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.parentNode.parentNode.name
                     botConfig.exchangeNode = global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.parentNode.parentNode
                     botConfig.market = {
                         baseAsset: global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.baseAsset.referenceParent.code.codeName,
                         quotedAsset: global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.quotedAsset.referenceParent.code.codeName
                     }
                     botConfig.uiStartDate = global.TASK_NODE.bot.code.startDate
+                    botConfig.code = global.TASK_NODE.bot.code
 
                     /* This stuff is still hardcoded and unresolved. */
                     botConfig.version = {
@@ -224,7 +225,7 @@
                     botConfig.loopCounter = 0;                   
 
                     /* File Path Root */
-                    botConfig.filePathRoot = botConfig.dataMine + "/" + botConfig.codeName + "/" + botConfig.exchange;
+                    botConfig.filePathRoot = botConfig.exchange + "/" + botConfig.market.baseAsset + "-" + botConfig.market.quotedAsset + "/" + botConfig.dataMine + "/" + botConfig.codeName  ;
 
                     /* Process Key */
                     botConfig.processKey = global.TASK_NODE.bot.processes[processIndex].name + '-' + global.TASK_NODE.bot.processes[processIndex].type + '-' + global.TASK_NODE.bot.processes[processIndex].id
@@ -253,20 +254,24 @@
 
                     if (processConfig.framework !== undefined) {
                         if (processConfig.framework.name === "Multi-Period-Daily" || processConfig.framework.name === "Multi-Period-Market" || processConfig.framework.name === "Multi-Period") {
-                            processConfig.framework.startDate.resumeExecution = true;
-                            if (processConfig.startMode.noTime !== undefined) {
-                                if (processConfig.startMode.noTime.run === "true") {
-                                    if (processConfig.startMode.noTime.beginDatetime !== undefined) {
-                                        processConfig.framework.startDate.fixedDate = processConfig.startMode.noTime.beginDatetime;
-                                        processConfig.framework.startDate.resumeExecution = true;
+                            if (processConfig.framework.startDate !== undefined) {
+                                processConfig.framework.startDate.resumeExecution = true;
+                                if (processConfig.startMode.noTime !== undefined) {
+                                    if (processConfig.startMode.noTime.run === "true") {
+                                        if (processConfig.startMode.noTime.beginDatetime !== undefined) {
+                                            processConfig.framework.startDate.fixedDate = processConfig.startMode.noTime.beginDatetime;
+                                            processConfig.framework.startDate.resumeExecution = true;
+                                        }
                                     }
                                 }
                             }
-                            if (processConfig.startMode.userDefined !== undefined) {
-                                if (processConfig.startMode.userDefined.run === "true") {
-                                    if (processConfig.startMode.userDefined.beginDatetime !== undefined) {
-                                        processConfig.framework.startDate.fixedDate = processConfig.startMode.userDefined.beginDatetime;
-                                        processConfig.framework.startDate.resumeExecution = processConfig.startMode.userDefined.resumeExecution;
+                            if (processConfig.startMode !== undefined) {
+                                if (processConfig.startMode.userDefined !== undefined) {
+                                    if (processConfig.startMode.userDefined.run === "true") {
+                                        if (processConfig.startMode.userDefined.beginDatetime !== undefined) {
+                                            processConfig.framework.startDate.fixedDate = processConfig.startMode.userDefined.beginDatetime;
+                                            processConfig.framework.startDate.resumeExecution = processConfig.startMode.userDefined.resumeExecution;
+                                        }
                                     }
                                 }
                             }
@@ -274,6 +279,30 @@
                     }
 
                     try {
+
+                        if (processConfig.startMode === undefined) { // Default 
+
+                            botConfig.hasTheBotJustStarted = true;
+                              
+                            switch (botConfig.type) {
+                                case 'Sensor Bot': {
+                                    runSensorBot(botConfig, processConfig);
+                                    break;
+                                }
+                                case 'Indicator Bot': {
+                                    runIndicatorBot(botConfig, processConfig);
+                                    break;
+                                }
+                                case 'Trading Bot': {
+                                    runTradingBot(botConfig, processConfig);
+                                    break;
+                                }
+                                default: {
+                                    console.log(logDisplace + "Root : [ERROR] start -> bootingBot -> Unexpected bot type. -> botConfig.type = " + botConfig.type);
+                                }
+                            }
+                            return
+                        }
 
                         if (processConfig.startMode.noTime !== undefined) {
 
@@ -362,6 +391,7 @@
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
+                            global.LOGGER_MAP.set('runSensorBot', logger)
                             logger.bot = pBotConfig;
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> Entering function."); }
@@ -386,7 +416,6 @@
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bot Id = " + botId);
 
-                                            console.log(logDisplace + "Root : [INFO] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.persist();
 
                                         } else {
@@ -427,6 +456,7 @@
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
+                            global.LOGGER_MAP.set('runIndicatorBot', logger)
                             logger.bot = pBotConfig;
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runIndicatorBot -> Entering function."); }
@@ -451,8 +481,6 @@
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runIndicatorBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runIndicatorBot -> onInitializeReady -> whenStartFinishes -> Bot Id = " + botId);
 
-
-                                            console.log(logDisplace + "Root : [INFO] start -> bootingBot -> runIndicatorBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.persist();
 
                                         } else {
@@ -491,6 +519,7 @@
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
+                            global.LOGGER_MAP.set('runTradingBot', logger)
                             logger.bot = pBotConfig;
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runTradingBot -> Entering function."); }
@@ -517,8 +546,6 @@
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runTradingBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runTradingBot -> onInitializeReady -> whenStartFinishes -> Bot Id = " + botId);
 
-                                            console.log(logDisplace + "Root : [INFO] start -> bootingBot -> runTradingBot -> onInitializeReady -> whenStartFinishes -> botId = " + botId);
-                                            console.log(logDisplace + "Root : [INFO] start -> bootingBot -> runTradingBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.persist();
 
                                         } else {
@@ -557,7 +584,7 @@
             function exitProcessInstance() {
 
                 global.ENDED_PROCESSES_COUNTER++
-                console.log("[INFO] Task Server -> " + global.TASK_NODE.name + " -> exitProcessInstance -> Process #" + global.ENDED_PROCESSES_COUNTER + " from " + global.TOTAL_PROCESS_INSTANCES_CREATED + " exiting.");
+                //console.log("[INFO] Task Server -> " + global.TASK_NODE.name + " -> exitProcessInstance -> Process #" + global.ENDED_PROCESSES_COUNTER + " from " + global.TOTAL_PROCESS_INSTANCES_CREATED + " exiting.");
 
                 if (global.ENDED_PROCESSES_COUNTER === global.TOTAL_PROCESS_INSTANCES_CREATED) {
                     global.EXIT_NODE_PROCESS()

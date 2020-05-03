@@ -25,29 +25,48 @@ global.CUSTOM_FAIL_RESPONSE = {
     message: "Custom Message"
 };
 
-/* Process Events */
+const ONE_DAY_IN_MILISECONDS = 24 * 60 * 60 * 1000;
+global.LOGGER_MAP = new Map()
+global.SESSION_MAP = new Map()
 
 process.on('uncaughtException', function (err) {
     console.log('[ERROR] Task Server -> server -> uncaughtException -> err.message = ' + err.message)
     console.log('[ERROR] Task Server -> server -> uncaughtException -> err.stack = ' + err.stack)
-    process.exit(1)
+    global.EXIT_NODE_PROCESS()
 })
 
 process.on('unhandledRejection', (reason, p) => {
     console.log('[ERROR] Task Server -> server -> unhandledRejection -> reason = ' + JSON.stringify(reason))
     console.log('[ERROR] Task Server -> server -> unhandledRejection -> p = ' + JSON.stringify(p))
-    process.exit(1)
+    global.EXIT_NODE_PROCESS()
 })
 
-process.on('exit', function (code) {
-    
-    /* We send an event signaling that the Task is being terminated. */
-    let key = global.TASK_NODE.name + '-' + global.TASK_NODE.type + '-' + global.TASK_NODE.id
+function finalizeLoggers() {
+    global.LOGGER_MAP.forEach(forEachLogger)
 
-    global.SYSTEM_EVENT_HANDLER.raiseEvent(key, 'Stopped') // Meaning Task Stopped
-    global.SYSTEM_EVENT_HANDLER.deleteEventHandler(key)
-    global.SYSTEM_EVENT_HANDLER.finalize()
-    global.SYSTEM_EVENT_HANDLER = undefined
+    function forEachLogger(logger) {
+        logger.finalize()
+    }
+}
+
+function finalizeSessions() {
+    global.SESSION_MAP.forEach(forEachSession)
+
+    function forEachSession(session) {
+        global.EVENT_SERVER_CLIENT.raiseEvent(session, 'Stopped')
+    }
+}
+
+process.on('exit', function (code) {
+
+    if (global.TASK_NODE !== undefined) {
+        /* We send an event signaling that the Task is being terminated. */
+        let key = global.TASK_NODE.name + '-' + global.TASK_NODE.type + '-' + global.TASK_NODE.id
+
+        global.EVENT_SERVER_CLIENT.raiseEvent(key, 'Stopped') // Meaning Task Stopped
+        global.EVENT_SERVER_CLIENT.finalize()
+        global.EVENT_SERVER_CLIENT = undefined
+    }
 
     //console.log('[INFO] Task Server -> server -> process.on.exit -> About to exit -> code = ' + code)
 })
@@ -68,7 +87,15 @@ process.on('message', message => {
     } 
 });
 
+
+let shuttingDownProcess = false
 global.EXIT_NODE_PROCESS = function exitProcess() {
+
+    if (shuttingDownProcess === true) { return }
+    shuttingDownProcess = true
+
+    /* Signal that all sessions are stopping. */
+    finalizeSessions()
 
     /* Cleaning Before Exiting. */
     clearInterval(global.HEARTBEAT_INTERVAL_HANDLER)
@@ -78,9 +105,10 @@ global.EXIT_NODE_PROCESS = function exitProcess() {
         let process = global.TASK_NODE.bot.processes[i]
 
         key = process.name + '-' + process.type + '-' + process.id
-        global.SYSTEM_EVENT_HANDLER.raiseEvent(key, 'Stopped') // Meaning Process Stopped
+        global.EVENT_SERVER_CLIENT.raiseEvent(key, 'Stopped') // Meaning Process Stopped
     }
 
+    finalizeLoggers()
     //console.log("[INFO] Task Server -> " + global.TASK_NODE.name + " -> EXIT_NODE_PROCESS -> Task Server will stop in 10 seconds.");
 
     setTimeout(process.exit, 10000) // We will give 10 seconds to logs be written on file
@@ -109,10 +137,10 @@ let taskId = process.argv[2] // reading what comes as an argument of the nodejs 
 
 /* Setting up the global Event Handler */
 
-const EVENT_HANDLER_MODULE = require('./SystemEventHandler.js');
-const IPC = require('node-ipc');
-global.SYSTEM_EVENT_HANDLER = EVENT_HANDLER_MODULE.newSystemEventHandler(IPC)
-global.SYSTEM_EVENT_HANDLER.initialize('Task Server', preLoader)
+let EVENT_SERVER_CLIENT = require('./EventServerClient.js');
+ 
+global.EVENT_SERVER_CLIENT = EVENT_SERVER_CLIENT.newEventsServerClient()
+global.EVENT_SERVER_CLIENT.initialize(preLoader)
 global.STOP_TASK_GRACEFULLY = false;
 
 function preLoader() {
@@ -120,29 +148,32 @@ function preLoader() {
         /* The Task Manager sent the info via a process argument. In this case we listen to an event with the Task Info that should be emitted at the UI */
         try {
             //console.log('[INFO] Task Server -> server -> preLoader -> Listening to starting event -> key = ' + 'Task Server - ' + taskId)
-            global.SYSTEM_EVENT_HANDLER.listenToEvent('Task Server - ' + taskId, 'Run Task', undefined, undefined, undefined, eventReceived)
+            global.EVENT_SERVER_CLIENT.listenToEvent('Task Server - ' + taskId, 'Run Task', undefined, 'Task Server - ' + taskId, undefined, eventReceived)
+            global.EVENT_SERVER_CLIENT.raiseEvent('Task Manager - ' + taskId, 'Nodejs Process Ready for Task')
             function eventReceived(message) {
                 global.TASK_NODE = message
-                global.TASK_NODE = JSON.parse(message.event.definition)
+                global.TASK_NODE = JSON.parse(message.event.taskDefinition)
+                global.TASK_NETWORK = JSON.parse(message.event.networkDefinition)
                 bootLoader()
             }
         } catch (err) {
             console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE -> ' + err.stack)
-            console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE = ' + JSON.stringify(global.TASK_NODE))
+            console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE = ' + JSON.stringify(global.TASK_NODE).substring(0, 1000))
         }
     }
     else {  /* This process was started not by the Task Manager, but independently (most likely for debugging purposes). In this case we listen to an event with the Task Info that should be emitted at the UI */
         try { 
             //console.log('[INFO] Task Server -> server -> preLoader -> Waiting for event to start debugging...')
-            global.SYSTEM_EVENT_HANDLER.listenToEvent('Task Server', 'Debug Task Started', undefined, undefined, undefined, startDebugging)
+            global.EVENT_SERVER_CLIENT.listenToEvent('Task Server', 'Debug Task Started', undefined, 'Task Server', undefined, startDebugging)
             function startDebugging(message) {
                 global.TASK_NODE = message
-                global.TASK_NODE = JSON.parse(message.event.definition) 
+                global.TASK_NODE = JSON.parse(message.event.taskDefinition)
+                global.TASK_NETWORK = JSON.parse(message.event.networkDefinition)
                 bootLoader()
             }
         } catch (err) {
             console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE -> ' + err.stack)
-            console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE = ' + JSON.stringify(global.TASK_NODE))
+            console.log('[ERROR] Task Server -> server -> preLoader -> global.TASK_NODE = ' + JSON.stringify(global.TASK_NODE).substring(0, 1000))
         }
     }
 }
@@ -153,8 +184,8 @@ function bootLoader() {
 
     let key = global.TASK_NODE.name + '-' + global.TASK_NODE.type + '-' + global.TASK_NODE.id
 
-    global.SYSTEM_EVENT_HANDLER.createEventHandler(key)
-    global.SYSTEM_EVENT_HANDLER.raiseEvent(key, 'Running') // Meaning Task Running
+    global.EVENT_SERVER_CLIENT.createEventHandler(key)
+    global.EVENT_SERVER_CLIENT.raiseEvent(key, 'Running') // Meaning Task Running
     global.HEARTBEAT_INTERVAL_HANDLER = setInterval(taskHearBeat, 1000)
 
     function taskHearBeat() {
@@ -163,7 +194,7 @@ function bootLoader() {
         let event = {
             seconds: (new Date()).getSeconds()
         }
-         global.SYSTEM_EVENT_HANDLER.raiseEvent(key, 'Heartbeat', event)
+         global.EVENT_SERVER_CLIENT.raiseEvent(key, 'Heartbeat', event)
     }
 
     for (let processIndex = 0; processIndex < global.TASK_NODE.bot.processes.length; processIndex++) {
@@ -177,7 +208,7 @@ function bootLoader() {
         }
 
         if (global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent === undefined) {
-            console.log("[WARN] Task Server -> server -> bootLoader -> Market Reference without a Reference Parent. This process will not be executed. -> Process Instance = " + JSON.stringify(global.TASK_NODE.bot.processes[processIndex].marketReference));
+            console.log("[WARN] Task Server -> server -> bootLoader -> Market Reference without a Reference Parent. This process will not be executed. -> Process Instance = " + JSON.stringify(global.TASK_NODE.bot.processes[processIndex].marketReference) + ", bot = " + global.TASK_NODE.bot.name);
             continue
         }
 
@@ -257,6 +288,28 @@ function startRoot(processIndex) {
     function onInitialized() {
         //console.log('[INFO] Task Server -> server -> startRoot -> onInitialized -> Entering function. ')
         root.start(processIndex)
+    }
+}
+
+global.getPercentage = function (fromDate, currentDate, lastDate) {
+    let fromDays = Math.trunc(fromDate.valueOf() / ONE_DAY_IN_MILISECONDS)
+    let currentDays = Math.trunc(currentDate.valueOf() / ONE_DAY_IN_MILISECONDS)
+    let lastDays = Math.trunc(lastDate.valueOf() / ONE_DAY_IN_MILISECONDS)
+    let percentage = (currentDays - fromDays) * 100 / (lastDays - fromDays)
+    if ((lastDays - fromDays) === 0) {
+        percentage = 100
+    }
+    return percentage 
+}
+
+global.areEqualDates = function (date1, date2) {
+    let day1Days = Math.trunc(date1.valueOf() / ONE_DAY_IN_MILISECONDS)
+    let day2Days = Math.trunc(date2.valueOf() / ONE_DAY_IN_MILISECONDS)
+ 
+    if (day1Days === day2Days) {
+        return true
+    } else {
+        return false
     }
 }
 

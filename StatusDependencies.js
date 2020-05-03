@@ -1,4 +1,4 @@
-﻿exports.newStatusDependencies = function newStatusDependencies(BOT, logger, STATUS_REPORT, UTILITIES) {
+﻿exports.newStatusDependencies = function newStatusDependencies(BOT, logger, STATUS_REPORT, UTILITIES, PROCESS_OUTPUT) {
 
     const FULL_LOG = true;
     const LOG_FILE_CONTENT = false;
@@ -11,6 +11,7 @@
         statusReports: new Map(),
         reportsByMainUtility: new Map(),
         initialize: initialize,
+        finalize: finalize,
         keys: []
     };
 
@@ -53,7 +54,7 @@
 
             for (let i = 0; i < dependenciesToProcess.length; i++) {
 
-                let statusReportModule = STATUS_REPORT.newStatusReport(BOT, logger, UTILITIES);
+                let statusReportModule = STATUS_REPORT.newStatusReport(BOT, logger, UTILITIES, PROCESS_OUTPUT);
 
                 logger.write(MODULE_NAME, "[INFO] initialize -> onInitilized -> Initializing Status Report # " + (i + 1));
                 let statusDependency = dependenciesToProcess[i]
@@ -165,4 +166,13 @@
         }
     }
 
+    function finalize() {
+        thisObject.statusReports.forEach(forEachStatusDependency)
+        function forEachStatusDependency(statusDependency) {
+            statusDependency.finalize()
+        }
+        thisObject.statusReports = undefined
+        bot = undefined
+        thisObject = undefined
+    }
 };

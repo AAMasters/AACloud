@@ -2,9 +2,9 @@
 
     const FULL_LOG = true;
     const LOG_FILE_CONTENT = false;
-
-    const MODULE_NAME = "Trading Simulation -> " + bot.SESSION.name;
     const ONE_DAY_IN_MILISECONDS = 24 * 60 * 60 * 1000;
+    const MODULE_NAME = "Trading Simulation -> " + bot.SESSION.name;
+    
     const GMT_SECONDS = ':00.000 GMT+0000';
 
     let thisObject = {
@@ -14,21 +14,9 @@
 
     let utilities = UTILITIES.newCloudUtilities(bot, logger);
 
-    let percentageBandwidthAt = {}
-    let bollingerBandsAt = {}
-    let bollingerChannelsAt = {}
-    let bollingerSubChannelsAt = {}
-    let candlesAt = {}
-
-
     return thisObject;
 
     function finalize() {
-        percentageBandwidthAt = undefined
-        bollingerBandsAt = undefined
-        bollingerChannelsAt = undefined
-        bollingerSubChannelsAt = undefined
-        candlesAt = undefined
         thisObject = undefined
     }
 
@@ -141,7 +129,8 @@
                 status: 0,
                 number: 0,
                 beginRate: 0,
-                endRate: 0
+                endRate: 0,
+                triggerOnSituation: ''
             }
 
             let currentTrade = {
@@ -151,7 +140,8 @@
                 profit: 0,
                 exitType: 0,
                 beginRate: 0,
-                endRate: 0
+                endRate: 0, 
+                takePositionSituation: ''
             }
 
             let balanceBaseAsset = bot.VALUES_TO_USE.initialBalanceA;
@@ -183,6 +173,10 @@
             let orderId = 0;
             let messageId = 0;
 
+            /* Allowing these to be accesible at formulas */
+            baseAsset = bot.VALUES_TO_USE.baseAsset
+            quotedAsset = bot.VALUES_TO_USE.quotedAsset
+
             let yesterday = {};
 
             /* Initialization */
@@ -211,7 +205,8 @@
                 status: 0,
                 number: 0,
                 beginRate: 0,
-                endRate: 0
+                endRate: 0,
+                triggerOnSituation: ''
             }
 
             yesterday.currentTrade = {
@@ -221,7 +216,8 @@
                 profit: 0,
                 exitType: 0,
                 beginRate: 0,
-                endRate: 0
+                endRate: 0,
+                takePositionSituation: ''
             }
 
             yesterday.balanceBaseAsset = balanceBaseAsset;
@@ -279,7 +275,8 @@
                     status: 0,
                     number: 0,
                     beginRate: 0,
-                    endRate: 0
+                    endRate: 0,
+                    triggerOnSituation: ''
                 }
 
                 interExecutionMemory.currentTrade = {
@@ -289,7 +286,8 @@
                     profit: 0,
                     exitType: 0,
                     beginRate: 0,
-                    endRate: 0
+                    endRate: 0,
+                    takePositionSituation: ''
                 }
 
                 interExecutionMemory.balanceBaseAsset = balanceBaseAsset;
@@ -349,7 +347,8 @@
                     status: interExecutionMemory.currentStrategy.status,
                     number: interExecutionMemory.currentStrategy.number,
                     beginRate: interExecutionMemory.currentStrategy.beginRate,
-                    endRate: interExecutionMemory.currentStrategy.endRate
+                    endRate: interExecutionMemory.currentStrategy.endRate,
+                    triggerOnSituation: interExecutionMemory.currentStrategy.triggerOnSituation
                 }
 
                 currentTrade = {
@@ -359,7 +358,8 @@
                     profit: interExecutionMemory.currentTrade.profit,
                     exitType: interExecutionMemory.currentTrade.exitType,
                     beginRate: interExecutionMemory.currentTrade.beginRate,
-                    endRate: interExecutionMemory.currentTrade.endRate
+                    endRate: interExecutionMemory.currentTrade.endRate,
+                    takePositionSituation: interExecutionMemory.currentTrade.takePositionSituation
                 }
 
                 if (currentDay) {
@@ -422,7 +422,8 @@
                     status: currentStrategy.status,
                     number: currentStrategy.number,
                     beginRate: currentStrategy.beginRate,
-                    endRate: currentStrategy.endRate
+                    endRate: currentStrategy.endRate,
+                    triggerOnSituation: currentStrategy.triggerOnSituation
                 }
 
                 yesterday.currentTrade = {
@@ -432,7 +433,8 @@
                     profit: currentTrade.profit,
                     exitType: currentTrade.exitType,
                     beginRate: currentTrade.beginRate,
-                    endRate: currentTrade.endRate
+                    endRate: currentTrade.endRate,
+                    takePositionSituation: currentTrade.takePositionSituation
                 }
 
                 yesterday.lastTradeProfitLoss = lastTradeProfitLoss;
@@ -524,6 +526,7 @@
 
                         for (let k = 0; k < dataDependencies.length; k++) {
                             let dataDependencyNode = dataDependencies[k] 
+                            if (dataDependencyNode.referenceParent.code.codeName !== 'Multi-Period-Daily') { continue }
                             let singularVariableName = dataDependencyNode.referenceParent.parentNode.code.singularVariableName
                             let pluralVariableName = dataDependencyNode.referenceParent.parentNode.code.pluralVariableName
                             let currentElement = getElement(thisChart[pluralVariableName], candle, 'Daily' + '-' + mapKey + '-' + pluralVariableName)
@@ -532,6 +535,7 @@
                     }
                 }
 
+                /* Finding the Current Element on Market Files */
                 for (let j = 0; j < global.marketFilesPeriods.length; j++) {
 
                     let mapKey = marketFilesPeriods[j][1]
@@ -540,11 +544,38 @@
 
                     for (let k = 0; k < dataDependencies.length; k++) {
                         let dataDependencyNode = dataDependencies[k]
+                        if (dataDependencyNode.referenceParent.code.codeName !== 'Multi-Period-Market') {continue}
                         let singularVariableName = dataDependencyNode.referenceParent.parentNode.code.singularVariableName
                         let pluralVariableName = dataDependencyNode.referenceParent.parentNode.code.pluralVariableName
                         let currentElement = getElement(thisChart[pluralVariableName], candle, 'Market' + '-' + mapKey + '-' + pluralVariableName)
                         thisChart[singularVariableName] = currentElement
                     }
+                }
+
+                /* Finding the Current Element on Single Files */
+
+                function isItInside(elementWithTimestamp, elementWithBeginEnd) {
+                    if (elementWithTimestamp.timestamp >= elementWithBeginEnd.begin && elementWithTimestamp.timestamp <= elementWithBeginEnd.end) {
+                        return true
+                    } else {
+                        return false
+                    }
+                }
+
+                let propertyName = 'atAnyTimeFrame' 
+                let thisChart = chart[propertyName]
+
+                for (let k = 0; k < dataDependencies.length; k++) {
+                    let dataDependencyNode = dataDependencies[k]
+                    if (dataDependencyNode.referenceParent.code.codeName !== 'Single-File') { continue }
+                    let singularVariableName = dataDependencyNode.referenceParent.parentNode.code.singularVariableName
+                    let pluralVariableName = dataDependencyNode.referenceParent.parentNode.code.pluralVariableName
+                    let elementArray = thisChart[pluralVariableName]
+                    let currentElement
+                    if (elementArray !== undefined) {
+                        currentElement = elementArray[elementArray.length - 1]
+                    }
+                    thisChart[singularVariableName] = currentElement
                 }
 
                 /* While we are processing the previous day. */
@@ -570,13 +601,24 @@
                     let processingDate = loopingDay.getUTCFullYear() + '-' + utilities.pad(loopingDay.getUTCMonth() + 1, 2) + '-' + utilities.pad(loopingDay.getUTCDate(), 2);
 
                     if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Simulation " + bot.sessionKey + " Loop # " + currentCandleIndex + " @ " + processingDate) }
-                    console.log("Jason -> " + MODULE_NAME + " -> runSimulation -> loop -> Simulation " + bot.sessionKey + " Loop # " + currentCandleIndex + " @ " + processingDate)
 
-                    bot.sessionHeartBeat(processingDate) // tell the world we are alive and doing well
+                    /*  Telling the world we are alive and doing well */
+                    let fromDate = new Date(bot.VALUES_TO_USE.timeRange.initialDatetime.valueOf())
+                    let lastDate = new Date(bot.VALUES_TO_USE.timeRange.finalDatetime.valueOf())
+
+                    let currentDateString = loopingDay.getUTCFullYear() + '-' + utilities.pad(loopingDay.getUTCMonth() + 1, 2) + '-' + utilities.pad(loopingDay.getUTCDate(), 2);
+                    let currentDate = new Date(loopingDay)
+                    let percentage = global.getPercentage(fromDate, currentDate, lastDate)
+                    bot.processHeartBeat(currentDateString, percentage)
+
+                    if (global.areEqualDates(currentDate, new Date()) === false) {
+                        logger.newInternalLoop(bot.codeName, bot.process, currentDate, percentage);
+                    }
                 }
                 previousLoopingDay = loopingDay.valueOf()
 
                 /* If any of the needed data dependencies is missing for this particular candle, then we jump the candle*/
+                /*
                 for (let k = 0; k < dataDependencies.length; k++) {
                     let dataDependencyNode = dataDependencies[k]
                     let singularVariableName = dataDependencyNode.referenceParent.parentNode.code.singularVariableName
@@ -591,6 +633,7 @@
                         return
                     }
                 }
+                */
 
                 periods++;
                 days = periods * timeFrame / ONE_DAY_IN_MILISECONDS;
@@ -658,7 +701,7 @@
                                     let key = j + '-' + 'triggerStage' + '-' + 'triggerOn' + '-' + k + '-' + m;
 
                                     if (condition.javascriptCode !== undefined) {
-                                        newCondition(key, condition.javascriptCode);
+                                        newCondition(key, condition.javascriptCode, chart);
                                     }
                                 }
                             }
@@ -676,7 +719,7 @@
                                     let key = j + '-' + 'triggerStage' + '-' + 'triggerOff' + '-' + k + '-' + m;
 
                                     if (condition.javascriptCode !== undefined) {
-                                        newCondition(key, condition.javascriptCode);
+                                        newCondition(key, condition.javascriptCode, chart);
                                     }
                                 }
                             }
@@ -694,7 +737,7 @@
                                     let key = j + '-' + 'triggerStage' + '-' + 'takePosition' + '-' + k + '-' + m;
 
                                     if (condition.javascriptCode !== undefined) {
-                                        newCondition(key, condition.javascriptCode);
+                                        newCondition(key, condition.javascriptCode, chart);
                                     }
                                 }
                             }
@@ -706,7 +749,7 @@
                     if (openStage !== undefined) {
 
                         /* Default Values*/
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             positionSize = balanceBaseAsset;
                             positionRate = candle.close;
                         } else {
@@ -729,13 +772,13 @@
                                             initialDefinition.positionSize.formula.error = err.message
                                         }
                                         if (isNaN(positionSize)) {
-                                            if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                                            if (baseAsset === bot.market.baseAsset) {
                                                 positionSize = balanceBaseAsset;
                                             } else {
                                                 positionSize = balanceQuotedAsset;
                                             }
                                         } else {
-                                            if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                                            if (baseAsset === bot.market.baseAsset) {
                                                 if (positionSize > balanceBaseAsset) { positionSize = balanceBaseAsset }
                                             } else {
                                                 if (positionSize > balanceQuotedAsset) { positionSize = balanceQuotedAsset }
@@ -756,7 +799,7 @@
                                             initialDefinition.positionRate.formula.error = err.message
                                         }
                                         if (isNaN(positionRate)) {
-                                            if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                                            if (baseAsset === bot.market.baseAsset) {
                                                 positionRate = candle.close;
                                             } else {
                                                 positionRate = candle.close;
@@ -825,7 +868,29 @@
                                                 let key = j + '-' + 'openStage' + '-' + 'initialDefinition' + '-' + 'stopLoss' + '-' + p + '-' + k + '-' + m;
 
                                                 if (condition.javascriptCode !== undefined) {
-                                                    newCondition(key, condition.javascriptCode);
+                                                    newCondition(key, condition.javascriptCode, chart);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    /* move to phase events */
+                                    for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                                        let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                                        if (moveToPhaseEvent !== undefined) {
+
+                                            for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                                let situation = moveToPhaseEvent.situations[k];
+
+                                                for (let m = 0; m < situation.conditions.length; m++) {
+
+                                                    let condition = situation.conditions[m];
+                                                    let key = j + '-' + 'openStage' + '-' + 'initialDefinition' + '-' + 'stopLoss' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                                    if (condition.javascriptCode !== undefined) {
+                                                        newCondition(key, condition.javascriptCode, chart);
+                                                    }
                                                 }
                                             }
                                         }
@@ -891,7 +956,29 @@
                                                 let key = j + '-' + 'openStage' + '-' + 'initialDefinition' + '-' + 'takeProfit' + '-' + p + '-' + k + '-' + m;
 
                                                 if (condition.javascriptCode !== undefined) {
-                                                    newCondition(key, condition.javascriptCode);
+                                                    newCondition(key, condition.javascriptCode, chart);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    /* move to phase events */
+                                    for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                                        let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                                        if (moveToPhaseEvent !== undefined) {
+
+                                            for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                                let situation = moveToPhaseEvent.situations[k];
+
+                                                for (let m = 0; m < situation.conditions.length; m++) {
+
+                                                    let condition = situation.conditions[m];
+                                                    let key = j + '-' + 'openStage' + '-' + 'initialDefinition' + '-' + 'takeProfit' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                                    if (condition.javascriptCode !== undefined) {
+                                                        newCondition(key, condition.javascriptCode, chart);
+                                                    }
                                                 }
                                             }
                                         }
@@ -967,7 +1054,29 @@
                                             let key = j + '-' + 'manageStage' + '-' + 'stopLoss' + '-' + p + '-' + k + '-' + m;
 
                                             if (condition.javascriptCode !== undefined) {
-                                                newCondition(key, condition.javascriptCode);
+                                                newCondition(key, condition.javascriptCode, chart);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                /* move to phase events */
+                                for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                                    let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                                    if (moveToPhaseEvent !== undefined) {
+
+                                        for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                            let situation = moveToPhaseEvent.situations[k];
+
+                                            for (let m = 0; m < situation.conditions.length; m++) {
+
+                                                let condition = situation.conditions[m];
+                                                let key = j + '-' + 'manageStage' + '-' + 'stopLoss' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                                if (condition.javascriptCode !== undefined) {
+                                                    newCondition(key, condition.javascriptCode, chart);
+                                                }
                                             }
                                         }
                                     }
@@ -1034,7 +1143,29 @@
                                             let key = j + '-' + 'manageStage' + '-' + 'takeProfit' + '-' + p + '-' + k + '-' + m;
 
                                             if (condition.javascriptCode !== undefined) {
-                                                newCondition(key, condition.javascriptCode);
+                                                newCondition(key, condition.javascriptCode, chart);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                /* move to phase events */
+                                for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                                    let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                                    if (moveToPhaseEvent !== undefined) {
+
+                                        for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                            let situation = moveToPhaseEvent.situations[k];
+
+                                            for (let m = 0; m < situation.conditions.length; m++) {
+
+                                                let condition = situation.conditions[m];
+                                                let key = j + '-' + 'manageStage' + '-' + 'takeProfit' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                                if (condition.javascriptCode !== undefined) {
+                                                    newCondition(key, condition.javascriptCode, chart);
+                                                }
                                             }
                                         }
                                     }
@@ -1043,7 +1174,7 @@
                         }
                     }
 
-                    function newCondition(key, node) {
+                    function newCondition(key, node, chart) {
 
                         let condition;
                         let error = ''
@@ -1093,7 +1224,7 @@
                     let maximumBalance
                     let balance
 
-                    if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                    if (baseAsset === bot.market.baseAsset) {
                         balance = balanceBaseAsset
                         minimumBalance = bot.VALUES_TO_USE.minimumBalanceA
                         maximumBalance = bot.VALUES_TO_USE.maximumBalanceA
@@ -1102,92 +1233,101 @@
                         minimumBalance = bot.VALUES_TO_USE.minimumBalanceB
                         maximumBalance = bot.VALUES_TO_USE.maximumBalanceB
                     }
+                    
+                    let stopRunningDate = new Date(candle.begin)
+                    if (balance <= minimumBalance) {
+                        tradingSystem.error = "Min Balance @ " + stopRunningDate.toLocaleString()
+                        if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> " + tradingSystem.error ); }
+                        afterLoop()
+                        return
+                    }
 
-                    if (balance > minimumBalance && balance < maximumBalance) {
+                    if (balance >= maximumBalance) {
+                        tradingSystem.error = "Max Balance @ " + stopRunningDate.toLocaleString()
+                        if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> " + tradingSystem.error); }
+                        afterLoop()
+                        return
+                    }
 
-                        /*
-                        Here we need to pick a strategy, or if there is not suitable strategy for the current
-                        market conditions, we pass until the next period.
+                    /*
+                    Here we need to pick a strategy, or if there is not suitable strategy for the current
+                    market conditions, we pass until the next period.
                 
-                        To pick a new strategy we will evaluate what we call the trigger on. Once we enter
-                        into one strategy, we will ignore market conditions for others. However there is also
-                        a strategy trigger off which can be hit before taking a position. If hit, we would
-                        be outside a strategy again and looking for the condition to enter all over again.
+                    To pick a new strategy we will evaluate what we call the trigger on. Once we enter
+                    into one strategy, we will ignore market conditions for others. However there is also
+                    a strategy trigger off which can be hit before taking a position. If hit, we would
+                    be outside a strategy again and looking for the condition to enter all over again.
             
-                        */
+                    */
 
-                        for (let j = 0; j < tradingSystem.strategies.length; j++) {
+                    for (let j = 0; j < tradingSystem.strategies.length; j++) {
 
-                            let strategy = tradingSystem.strategies[j];
+                        let strategy = tradingSystem.strategies[j];
 
-                            let triggerStage = strategy.triggerStage
+                        let triggerStage = strategy.triggerStage
 
-                            if (triggerStage !== undefined) {
+                        if (triggerStage !== undefined) {
 
-                                if (triggerStage.triggerOn !== undefined) {
+                            if (triggerStage.triggerOn !== undefined) {
 
-                                    for (let k = 0; k < triggerStage.triggerOn.situations.length; k++) {
+                                for (let k = 0; k < triggerStage.triggerOn.situations.length; k++) {
 
-                                        let situation = triggerStage.triggerOn.situations[k];
-                                        let passed = true;
+                                    let situation = triggerStage.triggerOn.situations[k];
+                                    let passed = true;
 
-                                        for (let m = 0; m < situation.conditions.length; m++) {
+                                    for (let m = 0; m < situation.conditions.length; m++) {
 
-                                            let condition = situation.conditions[m];
-                                            let key = j + '-' + 'triggerStage' + '-' + 'triggerOn' + '-' + k + '-' + m;
+                                        let condition = situation.conditions[m];
+                                        let key = j + '-' + 'triggerStage' + '-' + 'triggerOn' + '-' + k + '-' + m;
 
-                                            let value = false
-                                            if (conditions.get(key) !== undefined) {
-                                                value = conditions.get(key).value;
-                                            }
-
-                                            if (value === false) { passed = false; }
+                                        let value = false
+                                        if (conditions.get(key) !== undefined) {
+                                            value = conditions.get(key).value;
                                         }
 
-                                        if (passed) {
+                                        if (value === false) { passed = false; }
+                                    }
 
-                                            strategyStage = 'Trigger Stage';
-                                            currentStrategyIndex = j;
-                                            currentStrategy.begin = candle.begin;
-                                            currentStrategy.beginRate = candle.min;
-                                            currentStrategy.endRate = candle.min; // In case the strategy does not get exited
+                                    if (passed) {
 
-                                            if (processingDailyFiles) {
-                                                if (positionedAtYesterday) {
-                                                    yesterday.strategyStage = strategyStage;
-                                                    yesterday.currentStrategyIndex = currentStrategyIndex;
-                                                    yesterday.currentStrategy.begin = currentStrategy.begin;
-                                                    yesterday.currentStrategy.beginRate = currentStrategy.beginRate;
-                                                    yesterday.currentStrategy.endRate = currentStrategy.endRate;
-                                                }
+                                        strategyStage = 'Trigger Stage';
+                                        checkAnnouncements(triggerStage)
+
+                                        currentStrategyIndex = j;
+                                        currentStrategy.begin = candle.begin;
+                                        currentStrategy.beginRate = candle.min;
+                                        currentStrategy.endRate = candle.min; // In case the strategy does not get exited
+                                        currentStrategy.triggerOnSituation = situation.name
+
+                                        if (processingDailyFiles) {
+                                            if (positionedAtYesterday) {
+                                                yesterday.strategyStage = strategyStage;
+                                                yesterday.currentStrategyIndex = currentStrategyIndex;
+                                                yesterday.currentStrategy.begin = currentStrategy.begin;
+                                                yesterday.currentStrategy.beginRate = currentStrategy.beginRate;
+                                                yesterday.currentStrategy.endRate = currentStrategy.endRate;
+                                                yesterday.currentStrategy.triggerOnSituation = currentStrategy.triggerOnSituation;
                                             }
-
-                                            distanceToLast.triggerOn = 1;
-
-                                            if (processingDailyFiles) {
-                                                if (positionedAtYesterday) {
-                                                    yesterday.distanceToLast.triggerOn = distanceToLast.triggerOn
-                                                }
-                                            }
-
-                                            checkAnnouncements(triggerStage.triggerOn)
-
-                                            if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Switching to Trigger Stage because conditions at Trigger On Event were met."); }
-                                            break;
                                         }
+
+                                        distanceToLast.triggerOn = 1;
+
+                                        if (processingDailyFiles) {
+                                            if (positionedAtYesterday) {
+                                                yesterday.distanceToLast.triggerOn = distanceToLast.triggerOn
+                                            }
+                                        }
+
+                                        checkAnnouncements(triggerStage.triggerOn)
+
+                                        if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Switching to Trigger Stage because conditions at Trigger On Event were met."); }
+                                        break;
                                     }
                                 }
                             }
                         }
-                    } else {
-                        let stopRunningDate = new Date(candle.begin)
-                        if (balance <= minimumBalance) {
-                            tradingSystem.error = "Min Balance @ " + stopRunningDate.toLocaleString()
-                        }
-                        if (balance >= maximumBalance) {
-                            tradingSystem.error = "Max Balance @ " + stopRunningDate.toLocaleString()
-                        }
                     }
+                     
                 }
 
                 /* Trigger Off Condition */
@@ -1291,6 +1431,8 @@
                                     type = '"Take Position"';
 
                                     strategyStage = 'Open Stage';
+                                    checkAnnouncements(strategy.openStage)
+
                                     stopLossStage = 'Open Stage';
                                     takeProfitStage = 'Open Stage';
                                     stopLossPhase = 0;
@@ -1307,7 +1449,8 @@
                                     }
 
                                     takePositionNow = true
-
+                                    currentTrade.takePositionSituation = situation.name
+                                    
                                     checkAnnouncements(triggerStage.takePosition)
 
                                     if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Conditions at the Take Position Event were met."); }
@@ -1363,6 +1506,7 @@
                     if (parentNode !== undefined) {
                         let phase = parentNode.stopLoss.phases[p];
 
+                        /* Check the next Phase Event. */
                         let nextPhaseEvent = phase.nextPhaseEvent;
                         if (nextPhaseEvent !== undefined) {
 
@@ -1388,7 +1532,10 @@
 
                                     stopLossPhase++;
                                     stopLossStage = 'Manage Stage'
-                                    if (takeProfitPhase > 0) { strategyStage = 'Manage Stage' }
+                                    if (takeProfitPhase > 0) {
+                                        strategyStage = 'Manage Stage'
+                                        checkAnnouncements(manageStage, 'Take Profit')
+                                    }
 
                                     if (processingDailyFiles) {
                                         if (positionedAtYesterday) {
@@ -1400,6 +1547,64 @@
 
                                     checkAnnouncements(nextPhaseEvent)
                                     return;
+                                }
+                            }
+                        }
+
+                        /* Check the Move to Phase Events. */
+                        for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                            let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                            if (moveToPhaseEvent !== undefined) {
+
+                                for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                    let situation = moveToPhaseEvent.situations[k];
+                                    let passed = true;
+
+                                    for (let m = 0; m < situation.conditions.length; m++) {
+
+                                        let condition = situation.conditions[m];
+                                        let key = j + '-' + stageKey + initialDefinitionKey + '-' + 'stopLoss' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                        let value = false
+                                        if (conditions.get(key) !== undefined) {
+                                            value = conditions.get(key).value;
+                                        }
+
+                                        if (value === false) { passed = false; }
+                                    }
+
+                                    if (passed) {
+
+                                        let moveToPhase = moveToPhaseEvent.referenceParent
+                                        if (moveToPhase !== undefined) {
+                                            for (let q = 0; q < parentNode.stopLoss.phases.length; q++) {
+                                                if (parentNode.stopLoss.phases[q].id === moveToPhase.id) {
+                                                    stopLossPhase = q + 1
+                                                }
+                                            }
+                                        } else {
+                                            moveToPhaseEvent.error = "This Node needs to reference a Phase."
+                                            continue
+                                        }
+
+                                        stopLossStage = 'Manage Stage'
+                                        if (takeProfitPhase > 0) {
+                                            strategyStage = 'Manage Stage'
+                                            checkAnnouncements(manageStage, 'Take Profit')
+                                        }
+                                        
+                                        if (processingDailyFiles) {
+                                            if (positionedAtYesterday) {
+                                                yesterday.stopLossPhase = stopLossPhase;
+                                                yesterday.stopLossStage = stopLossStage;
+                                                yesterday.strategyStage = strategyStage;
+                                            }
+                                        }
+
+                                        checkAnnouncements(moveToPhaseEvent)
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -1493,7 +1698,9 @@
 
                     if (parentNode !== undefined) {
                         let phase = parentNode.takeProfit.phases[p];
+                        if (phase === undefined) {return} // trying to jump to a phase that does not exists.
 
+                        /* Check the next Phase Event. */
                         let nextPhaseEvent = phase.nextPhaseEvent;
                         if (nextPhaseEvent !== undefined) {
 
@@ -1519,7 +1726,10 @@
 
                                     takeProfitPhase++;
                                     takeProfitStage = 'Manage Stage'
-                                    if (stopLossPhase > 0) { strategyStage = 'Manage Stage' }
+                                    if (stopLossPhase > 0) {
+                                        strategyStage = 'Manage Stage'
+                                        checkAnnouncements(manageStage, 'Stop')
+                                    }
 
                                     if (processingDailyFiles) {
                                         if (positionedAtYesterday) {
@@ -1531,6 +1741,64 @@
 
                                     checkAnnouncements(nextPhaseEvent)
                                     return;
+                                }
+                            }
+                        }
+
+                        /* Check the Move to Phase Events. */
+                        for (let n = 0; n < phase.moveToPhaseEvents.length; n++) {
+                            let moveToPhaseEvent = phase.moveToPhaseEvents[n];
+                            if (moveToPhaseEvent !== undefined) {
+
+                                for (let k = 0; k < moveToPhaseEvent.situations.length; k++) {
+
+                                    let situation = moveToPhaseEvent.situations[k];
+                                    let passed = true;
+
+                                    for (let m = 0; m < situation.conditions.length; m++) {
+
+                                        let condition = situation.conditions[m];
+                                        let key = j + '-' + stageKey + initialDefinitionKey + '-' + 'takeProfit' + '-' + p + '-' + n + '-' + k + '-' + m;
+
+                                        let value = false
+                                        if (conditions.get(key) !== undefined) {
+                                            value = conditions.get(key).value;
+                                        }
+
+                                        if (value === false) { passed = false; }
+                                    }
+
+                                    if (passed) {
+
+                                        let moveToPhase = moveToPhaseEvent.referenceParent
+                                        if (moveToPhase !== undefined) {
+                                            for (let q = 0; q < parentNode.takeProfit.phases.length; q++) {
+                                                if (parentNode.takeProfit.phases[q].id === moveToPhase.id) {
+                                                    takeProfitPhase = q + 1
+                                                }
+                                            }
+                                        } else {
+                                            moveToPhaseEvent.error = "This Node needs to reference a Phase."
+                                            continue
+                                        }
+
+                                        takeProfitStage = 'Manage Stage'
+                                        if (stopLossPhase > 0) {
+                                            strategyStage = 'Manage Stage'
+                                            checkAnnouncements(manageStage, 'Stop')
+                                        }
+
+                                        if (processingDailyFiles) {
+                                            if (positionedAtYesterday) {
+                                                yesterday.takeProfitPhase = takeProfitPhase;
+                                                yesterday.takeProfitStage = takeProfitStage;
+                                                yesterday.strategyStage = strategyStage;
+                                            }
+                                        }
+
+                                        checkAnnouncements(moveToPhaseEvent)
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -1675,7 +1943,7 @@
 
                     /* Stop Loss condition: Here we verify if the Stop Loss was hitted or not. */
 
-                    if ((bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset && candle.max >= stopLoss) || (bot.VALUES_TO_USE.baseAsset !== bot.market.baseAsset && candle.min <= stopLoss)) {
+                    if ((baseAsset === bot.market.baseAsset && candle.max >= stopLoss) || (baseAsset !== bot.market.baseAsset && candle.min <= stopLoss)) {
 
                         if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Stop Loss was hit."); }
                         /*
@@ -1685,7 +1953,7 @@
                         If we take the stop loss value at those situation would be a huge distortion of facts.
                         */
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             if (stopLoss < candle.min) {
                                 stopLoss = candle.min
                                 if (processingDailyFiles) {
@@ -1710,7 +1978,7 @@
                         /* Apply the Slippage */
                         let slippageAmount = slippedStopLoss * bot.VALUES_TO_USE.slippage.stopLoss / 100
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             slippedStopLoss = slippedStopLoss + slippageAmount
                         } else {
                             slippedStopLoss = slippedStopLoss - slippageAmount
@@ -1721,6 +1989,8 @@
                         marketRate = closeRate;
                         type = '"Close@StopLoss"';
                         strategyStage = 'Close Stage';
+                        checkAnnouncements(strategy.closeStage, 'Stop')
+
                         stopLossStage = 'No Stage';
                         takeProfitStage = 'No Stage';
                         currentTrade.end = candle.end;
@@ -1745,7 +2015,7 @@
 
                     /* Take Profit condition: Here we verify if the Take Profit was hit or not. */
 
-                    if ((bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset && candle.min <= takeProfit) || (bot.VALUES_TO_USE.baseAsset !== bot.market.baseAsset && candle.max >= takeProfit)) {
+                    if ((baseAsset === bot.market.baseAsset && candle.min <= takeProfit) || (baseAsset !== bot.market.baseAsset && candle.max >= takeProfit)) {
 
                         if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> loop -> Take Profit was hit."); }
                         /*
@@ -1755,7 +2025,7 @@
                         If we take the stop loss value at those situation would be a huge distortion of facts.
                         */
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             if (takeProfit > candle.max) {
                                 takeProfit = candle.max
                                 if (processingDailyFiles) {
@@ -1779,7 +2049,7 @@
                         /* Apply the Slippage */
                         let slippageAmount = slippedTakeProfit * bot.VALUES_TO_USE.slippage.takeProfit / 100
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             slippedTakeProfit = slippedTakeProfit + slippageAmount
                         } else {
                             slippedTakeProfit = slippedTakeProfit - slippageAmount
@@ -1790,6 +2060,8 @@
                         marketRate = closeRate;
                         type = '"Close@TakeProfit"';
                         strategyStage = 'Close Stage';
+                        checkAnnouncements(strategy.closeStage, 'Take Profit')
+
                         stopLossStage = 'No Stage';
                         takeProfitStage = 'No Stage';
 
@@ -1840,7 +2112,7 @@
                     /* We take what was calculated at the formula and apply the slippage. */
                     let slippageAmount = tradePositionRate * bot.VALUES_TO_USE.slippage.positionRate / 100
 
-                    if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                    if (baseAsset === bot.market.baseAsset) {
                         tradePositionRate = tradePositionRate - slippageAmount
                     } else {
                         tradePositionRate = tradePositionRate + slippageAmount
@@ -1968,7 +2240,7 @@
                         let orderSide
  
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             orderSide = "sell"
 
                             orderPrice = tradePositionRate - 100 // This is going to be ingnored at the Exchange API for now since we only put market orders.
@@ -2062,7 +2334,7 @@
 
                         let feePaid = 0
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
 
                             feePaid = tradePositionSize * tradePositionRate * bot.VALUES_TO_USE.feeStructure.taker / 100
 
@@ -2174,7 +2446,7 @@
                         let amountB
                         let orderSide
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             orderSide = "buy"
 
                             orderPrice = ticker.last + 100; // This is provisional and totally arbitrary, until we have a formula on the designer that defines this stuff.
@@ -2256,7 +2528,7 @@
 
                         let feePaid = 0
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             strategy.positionSize = balanceQuotedAsset / closeRate;
                             strategy.positionRate = closeRate;
 
@@ -2282,7 +2554,7 @@
                             }
                         }
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             lastTradeProfitLoss = balanceBaseAsset - previousBalanceBaseAsset;
                             lastTradeROI = lastTradeProfitLoss * 100 / tradePositionSize;
                             if (isNaN(lastTradeROI)) { lastTradeROI = 0; }
@@ -2329,7 +2601,7 @@
                             }
                         }
 
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             ROI = (bot.VALUES_TO_USE.initialBalanceA + profit) / bot.VALUES_TO_USE.initialBalanceA - 1;
                             hitRatio = hits / roundtrips;
                             anualizedRateOfReturn = ROI / days * 365;
@@ -2487,7 +2759,8 @@
                         balanceQuotedAsset = Number.MAX_SAFE_INTEGER
                     }
 
-                    let quotedBaseAsset = '"' + bot.VALUES_TO_USE.baseAsset + '"'
+                    let quotedBaseAsset = '"' + baseAsset + '"'
+                    let quotedQuotedAsset = '"' + quotedAsset + '"'
 
                     simulationRecord = {
                         begin: candle.begin,
@@ -2524,6 +2797,9 @@
                         minimumBalanceB: bot.VALUES_TO_USE.minimumBalanceB,
                         maximumBalanceB: bot.VALUES_TO_USE.maximumBalanceB,
                         baseAsset: quotedBaseAsset,
+                        quotedAsset: quotedQuotedAsset,
+                        marketBaseAsset: '"' + bot.market.baseAsset + '"',
+                        marketQuotedAsset: '"' + bot.market.quotedAsset +  '"' ,
                         positionPeriods: positionPeriods,
                         positionDays: positionDays,
                         distanceToLastTriggerOn: distanceToLast.triggerOn,
@@ -2568,7 +2844,8 @@
                             status: 0,
                             number: 0,
                             beginRate: 0,
-                            endRate: 0
+                            endRate: 0,
+                            triggerOnSituation: ''
                         }
 
                         if (processingDailyFiles) {
@@ -2579,7 +2856,8 @@
                                     status: 0,
                                     number: 0,
                                     beginRate: 0,
-                                    endRate: 0
+                                    endRate: 0,
+                                    triggerOnSituation: ''
                                 }
                             }
                         }
@@ -2595,7 +2873,7 @@
                         currentTrade.endRate = candle.close
 
                         /* Here we will calculate the ongoing ROI */
-                        if (bot.VALUES_TO_USE.baseAsset === bot.market.baseAsset) {
+                        if (baseAsset === bot.market.baseAsset) {
                             currentTrade.lastTradeROI = (tradePositionRate - candle.close) / tradePositionRate * 100
                         } else {
                             currentTrade.lastTradeROI = (candle.close - tradePositionRate) / tradePositionRate * 100
@@ -2616,7 +2894,8 @@
                             lastTradeROI: 0,
                             exitType: 0,
                             beginRate: 0,
-                            endRate: 0
+                            endRate: 0,
+                            takePositionSituation: ''
                         }
 
                         if (processingDailyFiles) {
@@ -2628,7 +2907,8 @@
                                     lastTradeROI: 0,
                                     exitType: 0,
                                     beginRate: 0,
-                                    endRate: 0
+                                    endRate: 0,
+                                    takePositionSituation: ''
                                 }
                             }
                         }
@@ -2639,7 +2919,7 @@
 
                 function checkAnnouncements(node, value) {
                     /*
-                    Value is an optional parameter that represents the value that the announcement is monitoring for change.
+                    Value is an optional parameter that represents the value that the announcement is monitoring for change (for numeric values only).
                     If we do receive this value, we will only make the annoucement if the variance is grater than the user pre-defined value
                     for this variance.
                     */
@@ -2663,21 +2943,20 @@
 
                             if (periods > lastPeriodAnnounced) {
 
-                                /* The Value Variation is what tells us how much the value already announced must change in order to annouce it again. */
-                                let valueVariation
-                                try {
-                                    let code = JSON.parse(announcement.code)
-                                    valueVariation = code.valueVariation
-                                } catch (err) {
-                                    announcement.error = err.message
-                                }
+                                if (isNaN(value) === false) {
+                                    /* The Value Variation is what tells us how much the value already announced must change in order to annouce it again. */
+                                    let valueVariation
 
-                                if (newAnnouncementRecord.value !== undefined && valueVariation !== undefined) {
-                                    let upperLimit = newAnnouncementRecord.value + newAnnouncementRecord.value * valueVariation / 100
-                                    let lowerLimit = newAnnouncementRecord.value - newAnnouncementRecord.value * valueVariation / 100
-                                    if (value > lowerLimit && value < upperLimit) {
-                                        /* There is not enough variation to announce this again. */
-                                        return
+                                    let code = announcement.code
+                                    valueVariation = code.valueVariation
+
+                                    if (newAnnouncementRecord.value !== undefined && valueVariation !== undefined) {
+                                        let upperLimit = newAnnouncementRecord.value + newAnnouncementRecord.value * valueVariation / 100
+                                        let lowerLimit = newAnnouncementRecord.value - newAnnouncementRecord.value * valueVariation / 100
+                                        if (value > lowerLimit && value < upperLimit) {
+                                            /* There is not enough variation to announce this again. */
+                                            return
+                                        }
                                     }
                                 }
 
@@ -2685,6 +2964,7 @@
                                 We store the announcement temporarily at an Array to differ its execution, becasue we need to evaulate its formula
                                 and at this point in time the potential variables used at the formula are still not set.
                                 */
+                                announcement.value = value
                                 announcementsToBeMade.push(announcement)
 
                                 /* Next, we will remmeber this announcement was already done, so that it is not announced again in further processing of the same day. */
@@ -2712,6 +2992,7 @@
                         let formulaValue
                         if (announcement.formula !== undefined) {
                             try {
+                                let value = announcement.value
                                 formulaValue = eval(announcement.formula.code);
                             } catch (err) {
                                 announcement.formula.error = err.message
@@ -2719,7 +3000,9 @@
                         }
                         announcement.formulaValue = formulaValue
 
-                        bot.SESSION.socialBots.announce(announcement)
+                        if (bot.SESSION.socialBots !== undefined) {
+                            bot.SESSION.socialBots.announce(announcement)
+                        }
                     }
                 }
             }
@@ -2731,8 +3014,15 @@
 
                 /* Checking if we should continue processing this loop or not.*/
                 if (bot.STOP_SESSION === true) {
-                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing."); }
-                    console.log("[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing.")
+                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing this session."); }
+                    console.log("[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing this session.")
+                    afterLoop()
+                    return
+                }
+
+                if (global.STOP_TASK_GRACEFULLY === true) {
+                    if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing this task."); }
+                    console.log("[INFO] runSimulation -> controlLoop -> We are going to stop here bacause we were requested to stop processing this task.")
                     afterLoop()
                     return
                 }
@@ -2781,7 +3071,8 @@
                             status: yesterday.currentStrategy.status,
                             number: yesterday.currentStrategy.number,
                             beginRate: yesterday.currentStrategy.beginRate,
-                            endRate: yesterday.currentStrategy.endRate
+                            endRate: yesterday.currentStrategy.endRate,
+                            triggerOnSituation: yesterday.currentStrategy.triggerOnSituation
                         }
 
                         interExecutionMemory.currentTrade = {
@@ -2791,7 +3082,8 @@
                             profit: yesterday.currentTrade.profit,
                             exitType: yesterday.currentTrade.exitType,
                             beginRate: yesterday.currentTrade.beginRate,
-                            endRate: yesterday.currentTrade.endRate
+                            endRate: yesterday.currentTrade.endRate,
+                            takePositionSituation: yesterday.currentTrade.takePositionSituation
                         }
 
                         interExecutionMemory.balanceBaseAsset = yesterday.balanceBaseAsset;
@@ -2826,7 +3118,7 @@
             }
 
             function getElement(pArray, currentCandle, datasetName) {
-
+                if (pArray === undefined) {return}
                 try {
                     let element;
                     for (let i = 0; i < pArray.length; i++) {
@@ -2859,6 +3151,7 @@
                 }
                 catch (err) {
                     logger.write(MODULE_NAME, "[ERROR] runSimulation -> getElement -> datasetName = " + datasetName);
+                    logger.write(MODULE_NAME, "[ERROR] runSimulation -> getElement -> err = " + err.stack);
                     callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 }
             }
