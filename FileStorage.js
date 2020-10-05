@@ -4,7 +4,7 @@ const path = require('path')
 exports.newFileStorage = function newFileStorage(logger, host, port) {
 
     const MODULE_NAME = 'FileStorage'
-    const MAX_RETRY = 30
+    const MAX_RETRY = 10
     const FAST_RETRY_TIME_IN_MILISECONDS = 500
     const SLOW_RETRY_TIME_IN_MILISECONDS = 2000
 
@@ -17,12 +17,49 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
     }
 
     let thisObject = {
+        asyncGetTextFile: asyncGetTextFile,
+        asyncCreateTextFile: asyncCreateTextFile, 
         getTextFile: getTextFile,
         createTextFile: createTextFile,
         deleteTextFile: deleteTextFile
     }
 
     return thisObject
+
+    async function asyncGetTextFile(filePath, noRetry, canUsePrevious) {
+        /* This function allows its caller to work with async / await instead of callbacks */
+        let promise = new Promise((resolve, reject) => {
+
+            getTextFile(filePath, onFileRead, noRetry, canUsePrevious) 
+            function onFileRead(err, text) {
+ 
+                let response = {
+                    err: err,
+                    text: text
+                }
+                resolve(response)
+            }
+          })
+
+        return promise
+    }
+
+    async function asyncCreateTextFile(filePath, fileContent, keepPrevious, noTemp) {
+        /* This function allows its caller to work with async / await instead of callbacks */
+        let promise = new Promise((resolve, reject) => {
+
+            createTextFile(filePath, fileContent, onFileWriten, keepPrevious, noTemp) 
+            function onFileWriten(err) {
+ 
+                let response = {
+                    err: err
+                }
+                resolve(response)
+            }
+          })
+
+        return promise
+    }
 
     function getTextFile(filePath, callBackFunction, noRetry, canUsePrevious) {
 
@@ -31,9 +68,6 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
         recursiveGetTextFile(filePath, callBackFunction, noRetry, canUsePrevious)
 
         function recursiveGetTextFile(filePath, callBackFunction, noRetry, canUsePrevious) {
-
-            logger.write(MODULE_NAME, '[INFO] FileStorage -> getTextFile -> Entering Function.')
-
             let fileDoesNotExist = false
 
             /* Choose path for either bots or data */
@@ -163,7 +197,7 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
             }
 
             function retry() {
-                //console.log(new Date(), ' Retry #: ' + currentRetryGetTextFile, fileLocation )
+                console.log(new Date(), '[WARN] Read File Retry #: ' + currentRetryGetTextFile, fileLocation)
                 if (currentRetryGetTextFile < MAX_RETRY) {
                     currentRetryGetTextFile++
                     logger.write(MODULE_NAME, '[WARN] FileStorage -> getTextFile -> retry -> Will try to read the file again -> Retry #: ' + currentRetryGetTextFile)
@@ -191,16 +225,13 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
         }
     }
 
-    function createTextFile(filePath, fileContent, callBackFunction, keepPrevious) {
+    function createTextFile(filePath, fileContent, callBackFunction, keepPrevious, noTemp) {
 
         let currentRetryWriteTextFile = 0
 
-        recursiveCreateTextFile(filePath, fileContent, callBackFunction, keepPrevious)
+        recursiveCreateTextFile(filePath, fileContent, callBackFunction, keepPrevious, noTemp)
 
-        function recursiveCreateTextFile(filePath, fileContent, callBackFunction, keepPrevious) {
-
-            logger.write(MODULE_NAME, '[INFO] FileStorage -> createTextFile -> Entering Function.')
-
+        function recursiveCreateTextFile(filePath, fileContent, callBackFunction, keepPrevious, noTemp) {
             /* Choose path for either logs or data */
             let fileLocation
             if (filePath.indexOf("/Logs/") > 0) {
@@ -210,7 +241,6 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
             }
 
             try {
-
                 logger.write(MODULE_NAME, '[INFO] FileStorage -> createTextFile -> fileLocation: ' + fileLocation)
 
                 /* If necesary a folder or folders are created before writing the file to disk. */
@@ -222,9 +252,13 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
                 Then we delete the original file, if exists, and finally we rename the temporary into the original name.
                 */
                 const fs = require('fs')
-                fs.writeFile(fileLocation + '.tmp', fileContent, onFileWritenn)
+                if (noTemp === true) {
+                    fs.writeFile(fileLocation, fileContent, onFileWriten)
+                } else {
+                    fs.writeFile(fileLocation + '.tmp', fileContent, onFileWriten)
+                }
 
-                function onFileWritenn(err) {
+                function onFileWriten(err) {
                     let retryTimeToUse = FAST_RETRY_TIME_IN_MILISECONDS
                     if (currentRetryWriteTextFile > MAX_RETRY - 2) {
                         retryTimeToUse = SLOW_RETRY_TIME_IN_MILISECONDS
@@ -235,6 +269,10 @@ exports.newFileStorage = function newFileStorage(logger, host, port) {
                         setTimeout(retry, retryTimeToUse)
                     } else {
 
+                        if (noTemp === true) {
+                            callBackFunction(global.DEFAULT_OK_RESPONSE)
+                            return
+                        }
                         if (keepPrevious === true) {
                             /*
                             In some cases, we are going to keep a copy of the previous version of the file being written. This will be usefull to recover from crashes

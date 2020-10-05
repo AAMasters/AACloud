@@ -2,8 +2,6 @@
 
     const FULL_LOG = true;
     const LOG_FILE_CONTENT = false;
-    const ONE_DAY_IN_MILISECONDS = 24 * 60 * 60 * 1000;
-    const ONE_MIN_IN_MILISECONDS = 60 * 1000;
 
     const MODULE_NAME = "Commons";
 
@@ -77,7 +75,7 @@
                 return
             }
             if (outputDatasetNode.referenceParent.parentNode.dataBuilding === undefined) {
-                logger.write(MODULE_NAME, "[WARN] start -> Product Definition " + outputDatasetNode.referenceParent.parentNode.name + " without a Data Building Procedure. Product Definition = " + JSON.stringify(outputDatasetNode.referenceParent.parentNode));
+                logger.write(MODULE_NAME, "[WARN] start -> Product Definition " + outputDatasetNode.referenceParent.parentNode.name + " without a Data Building Procedure. Product Definition Name = " + outputDatasetNode.referenceParent.parentNode.name);
             }
             if (outputDatasetNode.referenceParent.config.codeName === undefined) {
                 logger.write(MODULE_NAME, "[ERROR] start -> Dataset witn no codeName defined. Product Dataset = " + JSON.stringify(outputDatasetNode.referenceParent));
@@ -97,29 +95,43 @@
                 return
             }
 
-            if (outputDatasetNode.referenceParent.parentNode.parentNode === undefined) {
-                logger.write(MODULE_NAME, "[ERROR] start -> Product Definition not attached to a Bot. Product Definition = " + JSON.stringify(outputDatasetNode.referenceParent.parentNode));
+            let botNode = global.FIND_NODE_IN_NODE_MESH(outputDatasetNode, 'Indicator Bot')
+            if (botNode === undefined) {
+                botNode = global.FIND_NODE_IN_NODE_MESH(outputDatasetNode, 'Trading Bot')
+            }
+            if (botNode === undefined) {
+                logger.write(MODULE_NAME, "[ERROR] start -> Product Definition not attached to a Bot. Product Definition = ");
                 callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 return
             }
 
-            if (outputDatasetNode.referenceParent.parentNode.parentNode.config.codeName === undefined) {
-                logger.write(MODULE_NAME, "[ERROR] start -> Bot witn no codeName defined. Bot = " + JSON.stringify(outputDatasetNode.referenceParent.parentNode.parentNode));
+            if (botNode.config.codeName === undefined) {
+                logger.write(MODULE_NAME, "[ERROR] start -> Bot witn no codeName defined.");
                 callBackFunction(global.DEFAULT_FAIL_RESPONSE);
                 return
             }
 
-            if (outputDatasetNode.referenceParent.parentNode.parentNode.parentNode === undefined) {
-                logger.write(MODULE_NAME, "[ERROR] start -> Bot not attached to a Data Mine. Bot = " + JSON.stringify(outputDatasetNode.referenceParent.parentNode.parentNode));
-                callBackFunction(global.DEFAULT_FAIL_RESPONSE);
-                return
-            }
-
-            if (outputDatasetNode.referenceParent.parentNode.parentNode.parentNode.config.codeName === undefined) {
-                logger.write(MODULE_NAME, "[ERROR] start -> Data Mine witn no codeName defined. Data Mine = " + JSON.stringify(outputDatasetNode.referenceParent.parentNode.parentNode.parentNode));
-                callBackFunction(global.DEFAULT_FAIL_RESPONSE);
-                return
-            }
+            let dataMineNode = global.FIND_NODE_IN_NODE_MESH(outputDatasetNode, 'Data Mine')
+            if (dataMineNode === undefined) {
+                let tradingMineNode = global.FIND_NODE_IN_NODE_MESH(outputDatasetNode, 'Trading Mine')
+                if (tradingMineNode === undefined) {
+                    logger.write(MODULE_NAME, "[ERROR] start -> Bot not attached to a Data Mine or a Trading Mine.");
+                    callBackFunction(global.DEFAULT_FAIL_RESPONSE);
+                    return
+                } else {
+                    if (tradingMineNode.config.codeName === undefined) {
+                        logger.write(MODULE_NAME, "[ERROR] start -> Trading Mine witn no codeName defined.");
+                        callBackFunction(global.DEFAULT_FAIL_RESPONSE);
+                        return
+                    }
+                }  
+            } else {
+                if (dataMineNode.config.codeName === undefined) {
+                    logger.write(MODULE_NAME, "[ERROR] start -> Data Mine witn no codeName defined.");
+                    callBackFunction(global.DEFAULT_FAIL_RESPONSE);
+                    return
+                }
+            }            
         }
         return true
     }
@@ -199,7 +211,7 @@
 
         let system = { // These are the available system variables to be used in User Code and Formulas
             timeFrame: timeFrame,
-            ONE_DAY_IN_MILISECONDS: ONE_DAY_IN_MILISECONDS
+            ONE_DAY_IN_MILISECONDS: global.ONE_DAY_IN_MILISECONDS
         }
         let variable = {} // This is the structure where the user will define its own variables that will be shared across different code blocks and formulas.
         let results = []
@@ -290,8 +302,8 @@
         let yesterday = {}
         let system = { // These are the available system variables to be used in User Code and Formulas
             timeFrame: timeFrame,
-            ONE_DAY_IN_MILISECONDS: ONE_DAY_IN_MILISECONDS,
-            ONE_MIN_IN_MILISECONDS: ONE_MIN_IN_MILISECONDS
+            ONE_DAY_IN_MILISECONDS: global.ONE_DAY_IN_MILISECONDS,
+            ONE_MIN_IN_MILISECONDS: global.ONE_MIN_IN_MILISECONDS
         }
         let variable = {} // This is the structure where the user will define its own variables that will be shared across different code blocks and formulas.
         let results = []
@@ -340,7 +352,7 @@
 
         if (processingDailyFiles) {
             /* Initialization of Last Instance */
-            lastInstantOfTheDay = currentDay.valueOf() + ONE_DAY_IN_MILISECONDS - 1;
+            lastInstantOfTheDay = currentDay.valueOf() + global.ONE_DAY_IN_MILISECONDS - 1;
 
             if (interExecutionMemory[productName] === undefined) {
                 /* The first time the intialization variables goes to the Inter Execution Memory. */
@@ -411,7 +423,7 @@
                         results.push(product[variableName]);
                     }
 
-                    /* While we are positioned at Yesterday, we keey updating this data structure. */
+                    /* While we are positioned at Yesterday, we keep updating this data structure. */
                     if (processingDailyFiles) {
                         if (positionedAtYesterday) {
                             yesterday.variable = JSON.parse(JSON.stringify(variable))
@@ -457,7 +469,7 @@
                             at the next day, in whole, even if it starts in the previous day.
                         */
 
-                        let lastInstantOdDay = currentDay.valueOf() + ONE_DAY_IN_MILISECONDS - 1;
+                        let lastInstantOdDay = currentDay.valueOf() + global.ONE_DAY_IN_MILISECONDS - 1;
 
                         if (record.end < currentDay.valueOf() - 1) { continue; }
                         if (record.end === lastInstantOdDay) { continue; }

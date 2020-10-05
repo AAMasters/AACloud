@@ -35,7 +35,6 @@
 
     global.dailyFilePeriods = JSON.parse(global.dailyFilePeriods);
 
-    const ROOT_DIR = './';
     const MODULE_NAME = "Root";
     const WAIT_TIME_FOR_ALL_PROCESS_INSTANCES_TO_START = 10000 // This avoid a race condition that could happen if one process finished before all the other even started.
 
@@ -57,50 +56,29 @@
             /* Global control of logging. */
 
             global.LOG_CONTROL = {
-                "Assistant": {
-                    logInfo: true,
-                    logWarnings: false,
-                    logErrors: true,
-                    logContent: false,
-                    intensiveLogging: false
-                },
-                "Exchange API": {
-                    logInfo: true,
-                    logWarnings: false,
-                    logErrors: true,
-                    logContent: false,
-                    intensiveLogging: false
-                },
                 "Status Report": {
-                    logInfo: true,
+                    logInfo: false,
                     logWarnings: false,
                     logErrors: true,
                     logContent: false,
                     intensiveLogging: false
                 },
                 "Dataset": {
-                    logInfo: true,
-                    logWarnings: false,
-                    logErrors: true,
-                    logContent: false,
-                    intensiveLogging: false
-                },
-                "Context": {
-                    logInfo: true,
+                    logInfo: false,
                     logWarnings: false,
                     logErrors: true,
                     logContent: false,
                     intensiveLogging: false
                 },
                 "Process Execution Events": {
-                    logInfo: true,
+                    logInfo: false,
                     logWarnings: false,
                     logErrors: true,
                     logContent: false,
                     intensiveLogging: false
                 },
                 "Process Output": {
-                    logInfo: true,
+                    logInfo: false,
                     logWarnings: false,
                     logErrors: true,
                     logContent: false,
@@ -132,9 +110,9 @@
 
             /* Process Loops Declarations. */
 
-            const INDICATOR_BOT_MAIN_LOOP_MODULE = require('./IndicatorBotProcessMainLoop');
-            const SENSOR_BOT_MAIN_LOOP_MODULE = require('./SensorBotProcessMainLoop');
-            const TRADING_ENGINE_MAIN_LOOP_MODULE = require('./TradingBotProcessMainLoop');
+            const INDICATOR_BOT_MODULE = require('./IndicatorBot');
+            const SENSOR_BOT = require('./SensorBot');
+            const TRADING_BOT_MODULE = require('./TradingBot');
 
             let botConfig;
             let processInstance = global.TASK_NODE.bot.processes[processIndex]
@@ -144,7 +122,7 @@
                 processInstance.referenceParent.config.framework !== undefined &&
                 (processInstance.referenceParent.config.framework.name === 'Multi-Period-Market' ||
                     processInstance.referenceParent.config.framework.name === 'Multi-Period-Daily' ||
-                    processInstance.referenceParent.config.framework.name === 'Multi-Period')
+                    processInstance.referenceParent.config.framework.name === 'Low-Frequency-Trading-Process')
             ) {
                 botConfig = processInstance.referenceParent.parentNode.config
                 botConfig.definedByUI = true
@@ -162,7 +140,7 @@
                     const FILE_STORAGE = require('./FileStorage.js');
                     let fileStorage = FILE_STORAGE.newFileStorage();
 
-                    let filePath = global.TASK_NODE.bot.processes[processIndex].referenceParent.parentNode.parentNode.config.codeName + '/bots/' + global.TASK_NODE.bot.config.repo + '/this.bot.config.json';
+                    let filePath = global.TASK_NODE.bot.processes[processIndex].referenceParent.parentNode.parentNode.config.codeName + '/bots/' + processInstance.referenceParent.parentNode.config.repo + '/this.bot.config.json';
 
                     fileStorage.getTextFile(filePath, onFileReceived);
 
@@ -180,7 +158,7 @@
                             botConfig.repo = global.TASK_NODE.bot.config.repo;
                             bootingBot(processIndex);
                         } catch (err) {
-                            console.log(logDisplace + "Root : [ERROR] start -> getBotConfigFromFile -> onInizialized -> onFileReceived -> err = " + JSON.stringify(err));
+                            console.log(logDisplace + "Root : [ERROR] start -> getBotConfigFromFile -> onInizialized -> onFileReceived -> err = " + err.stack);
                             return;
                         }
                     }
@@ -205,21 +183,14 @@
 
                     /* Simplifying the access to basic info */
                     botConfig.dataMine = global.TASK_NODE.bot.processes[processIndex].referenceParent.parentNode.parentNode.config.codeName
-                    botConfig.exchange = global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.parentNode.parentNode.name
-                    botConfig.exchangeNode = global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.parentNode.parentNode
+                    botConfig.exchange = global.TASK_NODE.parentNode.parentNode.parentNode.referenceParent.parentNode.parentNode.name
+                    botConfig.exchangeNode = global.TASK_NODE.parentNode.parentNode.parentNode.referenceParent.parentNode.parentNode
                     botConfig.market = {
-                        baseAsset: global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.baseAsset.referenceParent.config.codeName,
-                        quotedAsset: global.TASK_NODE.bot.processes[processIndex].marketReference.referenceParent.quotedAsset.referenceParent.config.codeName
+                        baseAsset: global.TASK_NODE.parentNode.parentNode.parentNode.referenceParent.baseAsset.referenceParent.config.codeName,
+                        quotedAsset: global.TASK_NODE.parentNode.parentNode.parentNode.referenceParent.quotedAsset.referenceParent.config.codeName
                     }
                     botConfig.uiStartDate = global.TASK_NODE.bot.config.startDate
                     botConfig.config = global.TASK_NODE.bot.config
-
-                    /* This stuff is still hardcoded and unresolved. */
-                    botConfig.version = {
-                        "major": 1,
-                        "minor": 0
-                    }
-                    botConfig.dataSetVersion = "dataSet.V1"
 
                     /* Loop Counter */
                     botConfig.loopCounter = 0;
@@ -233,27 +204,25 @@
                     /* Bot Type */
                     botConfig.type = global.TASK_NODE.bot.processes[processIndex].referenceParent.parentNode.type
 
-                    /* Setting the Key to use */
-                    process.env.KEY = undefined
-                    process.env.SECRET = undefined
+                    /* Time Frame Filter */
+                    if (global.TASK_NODE.bot.timeFramesFilter !== undefined) {
+                        botConfig.dailyTimeFrames = global.TASK_NODE.bot.timeFramesFilter.config.dailyTimeFrames
+                        botConfig.marketTimeFrames = global.TASK_NODE.bot.timeFramesFilter.config.marketTimeFrames
+                    }
 
-                    if (botConfig.processNode) {
-                        if (botConfig.processNode.marketReference) {
-                            if (botConfig.processNode.marketReference.keyInstance !== undefined) {
-                                if (botConfig.processNode.marketReference.keyInstance.referenceParent !== undefined) {
-                                    let key = botConfig.processNode.marketReference.keyInstance.referenceParent
+                    if (global.TASK_NODE.keyReference !== undefined) {
+                        if (global.TASK_NODE.keyReference.referenceParent !== undefined) {
+                            let key = global.TASK_NODE.keyReference.referenceParent
 
-                                    process.env.KEY = key.config.codeName
-                                    process.env.SECRET = key.config.secret
-                                }
-                            }
+                            botConfig.KEY = key.config.codeName
+                            botConfig.SECRET = key.config.secret
                         }
                     }
 
                     let processConfig = global.TASK_NODE.bot.processes[processIndex].referenceParent.config
 
                     if (processConfig.framework !== undefined) {
-                        if (processConfig.framework.name === "Multi-Period-Daily" || processConfig.framework.name === "Multi-Period-Market" || processConfig.framework.name === "Multi-Period") {
+                        if (processConfig.framework.name === "Multi-Period-Daily" || processConfig.framework.name === "Multi-Period-Market" || processConfig.framework.name === "Low-Frequency-Trading-Process") {
                             if (processConfig.framework.startDate !== undefined) {
                                 processConfig.framework.startDate.resumeExecution = true;
                                 if (processConfig.startMode.noTime !== undefined) {
@@ -387,7 +356,7 @@
                         try {
                             global.TOTAL_PROCESS_INSTANCES_CREATED++
 
-                            const DEBUG_MODULE = require(ROOT_DIR + 'DebugLog');
+                            const DEBUG_MODULE = require(global.ROOT_DIR + 'DebugLog');
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
@@ -396,14 +365,14 @@
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> Entering function."); }
 
-                            let extractionBotMainLoop = SENSOR_BOT_MAIN_LOOP_MODULE.newSensorBotProcessMainLoop(pBotConfig, logger);
-                            extractionBotMainLoop.initialize(pProcessConfig, onInitializeReady);
+                            let sensorBot = SENSOR_BOT.newSensorBot(pBotConfig, logger);
+                            sensorBot.initialize(pProcessConfig, onInitializeReady);
 
                             function onInitializeReady(err) {
 
                                 if (err.result === global.DEFAULT_OK_RESPONSE.result) {
 
-                                    extractionBotMainLoop.run(whenRunFinishes);
+                                    sensorBot.run(whenRunFinishes);
 
                                     function whenRunFinishes(err) {
 
@@ -412,14 +381,11 @@
                                         let botId = pBotConfig.dataMine + "." + pBotConfig.codeName + "." + pBotConfig.process;
 
                                         if (err.result === global.DEFAULT_OK_RESPONSE.result) {
-
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bot execution finished sucessfully.");
                                             logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bot Id = " + botId);
 
                                             logger.persist();
-
                                         } else {
-
                                             logger.write(MODULE_NAME, "[ERROR] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> err = " + err.message);
                                             logger.write(MODULE_NAME, "[ERROR] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Execution will be stopped. ");
                                             logger.write(MODULE_NAME, "[ERROR] start -> bootingBot -> runSensorBot -> onInitializeReady -> whenStartFinishes -> Bye.");
@@ -452,7 +418,7 @@
                         try {
                             global.TOTAL_PROCESS_INSTANCES_CREATED++
 
-                            const DEBUG_MODULE = require(ROOT_DIR + 'DebugLog');
+                            const DEBUG_MODULE = require(global.ROOT_DIR + 'DebugLog');
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
@@ -461,14 +427,14 @@
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runIndicatorBot -> Entering function."); }
 
-                            let indicatorBotMainLoop = INDICATOR_BOT_MAIN_LOOP_MODULE.newIndicatorBotProcessMainLoop(pBotConfig, logger);
-                            indicatorBotMainLoop.initialize(pProcessConfig, onInitializeReady);
+                            let indicatorBot = INDICATOR_BOT_MODULE.newIndicatorBot(pBotConfig, logger);
+                            indicatorBot.initialize(pProcessConfig, onInitializeReady);
 
                             function onInitializeReady(err) {
 
                                 if (err.result === global.DEFAULT_OK_RESPONSE.result) {
 
-                                    indicatorBotMainLoop.run(whenRunFinishes);
+                                    indicatorBot.run(whenRunFinishes);
 
                                     function whenRunFinishes(err) {
 
@@ -515,7 +481,7 @@
                         global.TOTAL_PROCESS_INSTANCES_CREATED++
 
                         try {
-                            const DEBUG_MODULE = require(ROOT_DIR + 'DebugLog');
+                            const DEBUG_MODULE = require(global.ROOT_DIR + 'DebugLog');
                             let logger;
 
                             logger = DEBUG_MODULE.newDebugLog();
@@ -524,14 +490,14 @@
 
                             if (FULL_LOG === true) { logger.write(MODULE_NAME, "[INFO] start -> bootingBot -> runTradingBot -> Entering function."); }
 
-                            let tradingBotMainLoop = TRADING_ENGINE_MAIN_LOOP_MODULE.newTradingBotProcessMainLoop(pBotConfig, logger);
-                            tradingBotMainLoop.initialize(pProcessConfig, onInitializeReady);
+                            let tradingBot = TRADING_BOT_MODULE.newTradingBot(pBotConfig, logger);
+                            tradingBot.initialize(pProcessConfig, onInitializeReady);
 
                             function onInitializeReady(err) {
 
                                 if (err.result === global.DEFAULT_OK_RESPONSE.result) {
 
-                                    tradingBotMainLoop.run(whenRunFinishes);
+                                    tradingBot.run(whenRunFinishes);
 
                                     function whenRunFinishes(err) {
 
